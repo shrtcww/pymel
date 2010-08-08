@@ -39,7 +39,7 @@ def setupScriptPaths():
     appDir = cmds.internalVar( userAppDir=True )
     sys.path.append( os.path.join( appDir, 'scripts' ) )
     
-def executeSetup(filename):
+def executeSetup(filename,execute_only_one=False):
     """
     Look for the given file name in the search path and execute it in the "__main__"
     namespace
@@ -50,6 +50,8 @@ def executeSetup(filename):
             if os.path.isfile( scriptPath ):
                 import __main__
                 execfile( scriptPath, __main__.__dict__ )
+                if execute_only_one:
+                    return
     except Exception, err:
         # err contains the stack of everything leading to execfile,
         # while sys.exc_info returns the stack of everything after execfile
@@ -69,7 +71,7 @@ def executeUserSetup():
     executeSetup('userSetup.py')
 
 def executeSiteSetup():
-    executeSetup('siteSetup.py')
+    executeSetup('siteSetup.py',execute_only_one=True)
     
 # Set up sys.path to include Maya-specific user script directories.
 setupScriptPaths()
