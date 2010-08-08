@@ -367,7 +367,9 @@ def promptForPath(**kwargs):
         kwargs['an'] = kwargs.pop('an', kwargs.pop('actionName', "Select File"))
         ret = cmds.fileBrowserDialog(**kwargs)
         folder = _Path(folder[0])
-        if folder.exists():
+        if folder: 
+            #Ensure something was entered/selected. But don't test if it exists
+            # as this would break mode 1/100+ causing them to return None
             return folder
 
 
