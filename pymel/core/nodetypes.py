@@ -280,7 +280,6 @@ class DependNode( general.PyNode ):
 
     def shadingGroups(self):
         """list any shading groups in the future of this object - works for shading nodes, transforms, and shapes
-
         :rtype: `DependNode` list
         """
         return self.future(type='shadingEngine')
