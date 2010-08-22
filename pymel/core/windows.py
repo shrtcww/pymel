@@ -363,6 +363,9 @@ def promptForPath(**kwargs):
 
         kwargs.pop('fileCommand',None)
         kwargs['fc'] = getfolder
+        
+        if 'mode' not in kwargs:
+            kwargs['mode'] = 0
 
         kwargs['an'] = kwargs.pop('an', kwargs.pop('actionName', "Select File"))
         ret = cmds.fileBrowserDialog(**kwargs)
