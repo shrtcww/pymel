@@ -565,8 +565,9 @@ class Menu(PyUI):
             
         #However we want to be careful not to attach to a rowGroupLayout(textFieldButtonGrp etc)
         # in this case set the parent to the rowGroupLayout's parent
-        if cmds.objectTypeUI(p) == u'rowGroupLayout':
-            p = p.parent()
+        if p:
+            if cmds.objectTypeUI(p) == u'rowGroupLayout':
+                p = p.parent()
         cmds.setParent(p)
         return p
 
