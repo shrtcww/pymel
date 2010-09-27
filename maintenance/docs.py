@@ -13,16 +13,16 @@ version = pymel.__version__.rsplit('.',1)[0]
 SOURCE = 'source'
 BUILD = 'build/' + version
 
-def generate():
+def generate(clean=True):
     from sphinx.ext.autosummary.generate import main
 
     os.chdir( os.path.join(docsdir) )
-    if os.path.exists(BUILD):
+    if clean and os.path.exists(BUILD):
         print "removing", os.path.join(docsdir,BUILD)
         shutil.rmtree(BUILD)
 
     os.chdir( os.path.join(docsdir,SOURCE) )
-    if os.path.exists('generated'):
+    if clean and os.path.exists('generated'):
         print "removing", os.path.join(docsdir,SOURCE,BUILD)
         shutil.rmtree('generated')
 
@@ -44,14 +44,14 @@ def build(**kwargs):
         if os.name == 'posix':
             dot = '/usr/local/bin/dot'
         else:
-            dot = 'C:\\graphviz\\bin\\dot.exe'
+            dot = 'C:\\Program Files (x86)\\Graphviz2.26.3\\bin\\dot.exe'
         if not os.path.exists(dot):
             raise TypeError( 'cannot find graphiz dot executable' )
         kwargs['graphviz_dot'] = dot   
     
     for key, value in kwargs.iteritems():
         opts.append('-D')
-        opts.append( key.strip() + '=' + value.strip() )
+        opts.append( key.strip() + '=' + value.strip() )	
     opts.append(SOURCE)
     opts.append( BUILD )
     main(opts)

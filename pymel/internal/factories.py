@@ -492,7 +492,10 @@ def _addFlagCmdDocs(func, cmdName, flag, docstring=''):
 
 def addFlagCmdDocsCallback(cmdName, flag, docstring):
     loadCmdDocCache()
+    if cmdName == 'stubFunc':
+        return docstring
     allFlagInfo = cmdlist[cmdName]['flags']
+
     try:
         flagInfo = allFlagInfo[flag]
     except KeyError:
