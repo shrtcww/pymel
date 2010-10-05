@@ -937,6 +937,7 @@ def cacheResults():
         doCacheResults()
         
 def doCacheResults():
+    import pymel.internal.apicache as apicache
     print "---"
     print "adding manual defaults"
     setManualDefaults()
@@ -944,10 +945,7 @@ def doCacheResults():
     # update apiClasIfno with the sparse data stored in apiClassOverrides
     util.mergeCascadingDicts( factories.apiClassOverrides, factories.apiClassInfo, allowDictToListMerging=True )
     print "saving api cache"
-    api.saveApiCache()
+    apicache.saveApiCache()
     print "saving bridge"
-    api.saveApiToMelBridge()
-        
-    
-    print "---"
+    apicache.saveApiToMelBridge()
 
