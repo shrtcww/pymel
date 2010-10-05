@@ -38,5 +38,11 @@ def build_pymel_menu():
                 parent=master_menu,
                 command=build_docs,
                 annotation='Build New Docs')
+    
+    import maintenance.pymelControlPanel
+    pm.menuItem(label='Control Panel',
+                parent=master_menu,
+                command='import maintenance.pymelControlPanel as PCP;PCP.PymelControlPanel()',
+                annotation='Control Panel')
 
 pm.evalDeferred(build_pymel_menu)
