@@ -248,13 +248,25 @@ class Panel(PyUI):
     # we're declaring it here because other classes will have this
     # as their base class, so we need to make sure it exists first
 
+_withParentStack = []
+_withParentMenuStack = []
+
 class Layout(PyUI):
     def __enter__(self):
+        global _withParentStack
+        _withParentStack.append(self)
         self.makeDefault()
         return self
 
     def __exit__(self, type, value, traceback):
-        self.pop()
+        global _withParentStack
+        _withParentStack.pop()
+        if _withParentStack:
+            cmds.setParent(_withParentStack[-1])
+        else:
+            parent = self.pop()
+            while parent and cmds.objectTypeUI(parent) == u'rowGroupLayout':
+                parent = parent.pop()
 
     def children(self):
         #return [ PyUI( self.name() + '|' + x) for x in self.__melcmd__(self, q=1, childArray=1) ]
@@ -481,7 +493,10 @@ class AutoLayout(FormLayout):
     """
     def __exit__(self, type, value, traceback):
         self.redistribute()
-        self.pop()
+        super(AutoLayout, self).__exit__(type, value, traceback)
+
+class RowLayout(Layout):
+    __metaclass__ = _factories.MetaMayaUIWrapper
 
 class TextScrollList(PyUI):
     __metaclass__ = _factories.MetaMayaUIWrapper
@@ -506,36 +521,49 @@ class TextScrollList(PyUI):
         numberOfItems = self.getNumberOfItems()
         self.selectIndexedItems(range(1,numberOfItems+1))
 
-class PopupMenu(PyUI):
+class Menu(PyUI):
     __metaclass__ = _factories.MetaMayaUIWrapper
+    
     def __enter__(self):
-        cmds.setParent(self,menu=True)
+        global _withParentMenuStack
+        _withParentMenuStack.append(self)
+        self.makeDefault()
         return self
 
     def __exit__(self, type, value, traceback):
-        p = self.parent()
-        #Ensure we set the parent back to a layout not some ui element
-        # like say a button which does not accept children
-        if not cmds.layout(p, exists=True):
-            p = p.parent()
+        global _withParentMenuStack
+        _withParentMenuStack.pop()
+        if _withParentMenuStack:
+            cmds.setParent(_withParentMenuStack[-1], menu=True)
+        else:
+            parent = self
+            while True:
+                parent = parent.parent()
+                try:
+                    cmds.setParent(parent, menu=True)
+                except RuntimeError:
+                    continue
+                break
+
+    def getItemArray(self):
+        """ Modified to return pymel instances """
+        children = cmds.menu(self,query=True,itemArray=True)
+        if children:
+            return [MenuItem(item) for item in cmds.menu(self,query=True,itemArray=True)]
+        else:
+            return []
         
-        #However we want to be careful not to attach to a rowGroupLayout(textFieldButtonGrp etc)
-        # in this case set the parent to the rowGroupLayout's parent
-        if cmds.objectTypeUI(p) == u'rowGroupLayout':
-            p = p.parent()
-        cmds.setParent(p)
-        return p
+    def makeDefault(self):
+        """
+        set this layout as the default parent
+        """
+        cmds.setParent(self, menu=True)        
 
-class OptionMenu(PyUI):
+class PopupMenu(Menu):
     __metaclass__ = _factories.MetaMayaUIWrapper
-    def __enter__(self):
-        cmds.setParent(self,menu=True)
-        return self
 
-    def __exit__(self, type, value, traceback):
-        p = self.parent()
-        cmds.setParent(p)
-        return p
+class OptionMenu(Menu):
+    __metaclass__ = _factories.MetaMayaUIWrapper
 
     def addMenuItems( self, items, title=None):
         """ Add the specified item list to the OptionMenu, with an optional 'title' item """
@@ -551,75 +579,25 @@ class OptionMenu(PyUI):
             cmds.deleteUI(t)
     addItems = addMenuItems
     
-class OptionMenuGrp(OptionMenu):
+class OptionMenuGrp(RowLayout):
     __metaclass__ = _factories.MetaMayaUIWrapper
-    def __enter__(self):
-        cmds.setParent(self,menu=True)
-        return self
-
-    def __exit__(self, type, value, traceback):
-        p = self.parent()
-        #Ensure we set the parent back to a layout not some ui element
-        # like say a button which does not accept children
-        if not cmds.layout(p, exists=True):
-            p = p.parent()
-            
-        #However we want to be careful not to attach to a rowGroupLayout(textFieldButtonGrp etc)
-        # in this case set the parent to the rowGroupLayout's parent
-        if cmds.objectTypeUI(p) == u'rowGroupLayout':
-            p = p.parent()
-        cmds.setParent(p)
-        return p
     
-    def addMenuItems( self, items, title=None):
-        """ Add the specified item list to the OptionMenu, with an optional 'title' item """
-        if title:
-            cmds.menuItem(l=title, en=0, parent=self.name()+'|OptionMenu')
-        for item in items:
-            cmds.menuItem(l=item, parent=self.name()+'|OptionMenu')
-            
-    addItems = addMenuItems
-
-
-class Menu(PyUI):
-    __metaclass__ = _factories.MetaMayaUIWrapper
+    def menu(self):
+        for child in self.children():
+            if isinstance(child, OptionMenu):
+                return child
+    
+    # Want to set both the menu to the child |OptionMenu item, and the normal
+    # parent to this... 
     def __enter__(self):
-        cmds.setParent(self,menu=True)
-        return self
+        self.menu().__enter__()
+        return super(OptionMenuGrp, self).__enter__()
 
     def __exit__(self, type, value, traceback):
-        p = self.parent()
-        #Ensure we set the parent back to a layout not some ui element
-        # like say a button which does not accept children
-        if not cmds.layout(p, exists=True):
-            p = p.parent()
-            
-        #However we want to be careful not to attach to a rowGroupLayout(textFieldButtonGrp etc)
-        # in this case set the parent to the rowGroupLayout's parent
-        if p:
-            if cmds.objectTypeUI(p) == u'rowGroupLayout':
-                p = p.parent()
-        cmds.setParent(p)
-        return p
-
-    def getItemArray(self):
-        """ Modified to return pymel instances """
-        children = cmds.menu(self,query=True,itemArray=True)
-        if children:
-            return [MenuItem(item) for item in cmds.menu(self,query=True,itemArray=True)]
-        else:
-            return []
+        self.menu().__exit__(type, value, traceback)
+        return super(OptionMenuGrp, self).__exit__(type, value, traceback)
 
 class SubMenuItem(Menu):
-    def __enter__(self):
-        cmds.setParent(self,menu=True)
-        return self
-
-    def __exit__(self, type, value, traceback):
-        p = self.parent()
-        cmds.setParent(p,menu=True)
-        return p
-
     def getBoldFont(self):
         return cmds.menuItem(self,query=True,boldFont=True)
 
@@ -631,7 +609,7 @@ class SubMenuItem(Menu):
         
 class CommandMenuItem(PyUI):
     __metaclass__ = _factories.MetaMayaUIWrapper
-    __melui__ = cmds.menuItem
+    __melui__ = 'menuItem'
     def __enter__(self):
         cmds.setParent(self,menu=True)
         return self
@@ -914,7 +892,7 @@ def _createUIClasses():
         try:
             cls = dynModule[classname]
         except KeyError:
-            if classname.endswith('Layout'):
+            if classname.endswith( ('Layout', 'Grp') ):
                 bases = (Layout,)
             elif classname.endswith('Panel'):
                 bases = (Panel,)                
@@ -947,51 +925,20 @@ class PathButtonGrp( dynModule.TextFieldButtonGrp ):
     def __new__(cls, name=None, create=False, *args, **kwargs):
 
         if create:
-            import windows
-
             kwargs.pop('bl', None)
             kwargs['buttonLabel'] = 'Browse'
             kwargs.pop('bc', None)
             kwargs.pop('buttonCommand', None)
 
-            recent_menu=kwargs.pop('recentMenuOptionVar',False)
-            
             name = cmds.textFieldButtonGrp( name, *args, **kwargs)
 
-            if recent_menu:
-                def buildRecentMenu(popup,field,optionvar):
-                    import language
-
-                    popup.deleteAllItems()
-                    recent_list = language.optionVar.get(optionvar,None)
-                    if recent_list:
-                        if not isinstance(recent_list,tuple):
-                            recent_list = (recent_list,)
-                        for item in recent_list:
-                            windows.menuItem(label=item,
-                                             command=windows.Callback(cmds.textFieldGrp,
-                                                                      field,
-                                                                      edit=True,
-                                                                      text=item,
-                                                                      forceChangeCommand=True,
-                                                                      ),
-                                             parent=popup)
-                with windows.popupMenu() as pop:
-                    windows.popupMenu(pop,
-                                      edit=True,
-                                      postMenuCommand=windows.Callback(
-                                          buildRecentMenu,
-                                          pop,
-                                          name,
-                                          recent_menu,
-                                          ),
-                         )
-
             def setPathCB(name):
+                import windows
                 f = windows.promptForPath()
                 if f:
                     cmds.textFieldButtonGrp( name, e=1, text=f, forceChangeCommand=True)
 
+            import windows
             cb = windows.Callback( setPathCB, name )
             cmds.textFieldButtonGrp( name, e=1, buttonCommand=cb )
 
@@ -1004,22 +951,6 @@ class PathButtonGrp( dynModule.TextFieldButtonGrp ):
     def getPath(self):
         import system
         return system.Path( self.getText() )
-    
-    def updateRecentMenu(self,item,optionvar,length=10):
-        import language
-
-        recent = language.optionVar.get(optionvar,list())
-        if recent:
-            if isinstance(recent,unicode):
-                recent = [recent,]
-            else:
-                recent = list(recent)
-                
-        u_item = unicode(item)
-        if u_item in recent:
-            recent.remove(u_item)
-        recent.insert(0,u_item)
-        language.optionVar[optionvar] = recent[:length]
 
 class FolderButtonGrp( PathButtonGrp ):
     def __new__(cls, name=None, create=False, *args, **kwargs):
