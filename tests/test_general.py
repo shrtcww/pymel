@@ -1,11 +1,17 @@
 import sys, os, inspect, unittest
 #from testingutils import setupUnittestModule
 from pymel.core import *
-import pymel.core.nodetypes as nodetypes
+import pymel.core as pm 
+import pymel.versions as versions
+import pymel.internal.factories as factories
+import pymel.internal.pmcmds as pmcmds
+import pymel.core.datatypes as dt
+import pymel.core.nodetypes as nt
 #import pymel
-import pymel.internal.factories as _factories
 #import maya.cmds as cmds
-#
+
+# Name mangling happens if we try to use __name inside a UnitTest class...
+from maya.app.commands import __makeStubFunc as _makeStubFunc
 #
 #
 #
@@ -22,67 +28,97 @@ import pymel.internal.factories as _factories
 #    #print emptyFunctions
 
 
+# Todo - add missing attribute types (ie, message, boolean, datatype forms of
+# double2, float3, etc
 
 def _makeAllAttrTypes(nodeName):
-    res = cmds.sphere(n=nodeName)
-    cmds.addAttr(ln='short2Attr',at='short2')
-    cmds.addAttr(ln='short2a',p='short2Attr',at='short')
-    cmds.addAttr(ln='short2b',p='short2Attr',at='short')
+    cmds.sphere(n=nodeName)
     
-    cmds.addAttr(ln='short3Attr',at='short3')
-    cmds.addAttr(ln='short3a',p='short3Attr',at='short')
-    cmds.addAttr(ln='short3b',p='short3Attr',at='short')
-    cmds.addAttr(ln='short3c',p='short3Attr',at='short')
+    attributeTypesToNames = {}
+    dataTypesToNames = {}
+    namesToType = {}
     
-    cmds.addAttr(ln='long2Attr',at='long2')
-    cmds.addAttr(ln='long2a',p='long2Attr',at='long')
-    cmds.addAttr(ln='long2b',p='long2Attr',at='long')
+    def doAttrAdd(**kwargs):
+        name = kwargs.get('ln', kwargs.get('longName'))
+        dt = kwargs.get('dt', kwargs.get('dataType'))
+
+        if dt is not None:
+            dataTypesToNames.setdefault(dt, []).append(name)
+            namesToType[name] = ('dt', dt)
+        else:
+            at = kwargs.get('at', kwargs.get('attributeType'))
+            if at is None:
+                at = 'double'
+            attributeTypesToNames.setdefault(dt, []).append(name)
+            namesToType[name] = ('at', at)
+        cmds.addAttr(**kwargs)
     
-    cmds.addAttr(ln='long3Attr',at='long3')
-    cmds.addAttr(ln='long3a',p='long3Attr',at='long')
-    cmds.addAttr(ln='long3b',p='long3Attr',at='long')
-    cmds.addAttr(ln='long3c',p='long3Attr',at='long')
+    # compound numeric types    
+    doAttrAdd(ln='short2Attr',at='short2')
+    doAttrAdd(ln='short2a',p='short2Attr',at='short')
+    doAttrAdd(ln='short2b',p='short2Attr',at='short')
     
-    cmds.addAttr(ln='float2Attr',at='float2')
-    cmds.addAttr(ln='float2a',p='float2Attr',at="float")
-    cmds.addAttr(ln='float2b',p='float2Attr',at="float")
+    doAttrAdd(ln='short3Attr',at='short3')
+    doAttrAdd(ln='short3a',p='short3Attr',at='short')
+    doAttrAdd(ln='short3b',p='short3Attr',at='short')
+    doAttrAdd(ln='short3c',p='short3Attr',at='short')
     
-    cmds.addAttr(ln='float3Attr',at='float3')
-    cmds.addAttr(ln='float3a',p='float3Attr',at="float")
-    cmds.addAttr(ln='float3b',p='float3Attr',at="float")
-    cmds.addAttr(ln='float3c',p='float3Attr',at="float")
+    doAttrAdd(ln='long2Attr',at='long2')
+    doAttrAdd(ln='long2a',p='long2Attr',at='long')
+    doAttrAdd(ln='long2b',p='long2Attr',at='long')
     
-    cmds.addAttr(ln='double2Attr',at='double2')
-    cmds.addAttr(ln='double2a',p='double2Attr',at='double')
-    cmds.addAttr(ln='double2b',p='double2Attr',at='double')
+    doAttrAdd(ln='long3Attr',at='long3')
+    doAttrAdd(ln='long3a',p='long3Attr',at='long')
+    doAttrAdd(ln='long3b',p='long3Attr',at='long')
+    doAttrAdd(ln='long3c',p='long3Attr',at='long')
     
-    cmds.addAttr(ln='double3Attr',at='double3')
-    cmds.addAttr(ln='double3a',p='double3Attr',at='double')
-    cmds.addAttr(ln='double3b',p='double3Attr',at='double')
-    cmds.addAttr(ln='double3c',p='double3Attr',at='double')
+    doAttrAdd(ln='float2Attr',at='float2')
+    doAttrAdd(ln='float2a',p='float2Attr',at="float")
+    doAttrAdd(ln='float2b',p='float2Attr',at="float")
     
-    cmds.addAttr(ln='Int32ArrayAttr',dt='Int32Array')
-    cmds.addAttr(ln='doubleArrayAttr',dt='doubleArray')
-    cmds.addAttr(ln='pointArrayAttr',dt='pointArray')
-    cmds.addAttr(ln='vectorArrayAttr',dt='vectorArray')
+    doAttrAdd(ln='float3Attr',at='float3')
+    doAttrAdd(ln='float3a',p='float3Attr',at="float")
+    doAttrAdd(ln='float3b',p='float3Attr',at="float")
+    doAttrAdd(ln='float3c',p='float3Attr',at="float")
     
-    cmds.addAttr(ln='stringArrayAttr',dt='stringArray')
-    cmds.addAttr(ln='stringAttr',dt="string")
-    cmds.addAttr(ln='matrixAttr',dt="matrix")
+    doAttrAdd(ln='double2Attr',at='double2')
+    doAttrAdd(ln='double2a',p='double2Attr',at='double')
+    doAttrAdd(ln='double2b',p='double2Attr',at='double')
+    
+    doAttrAdd(ln='double3Attr',at='double3')
+    doAttrAdd(ln='double3a',p='double3Attr',at='double')
+    doAttrAdd(ln='double3b',p='double3Attr',at='double')
+    doAttrAdd(ln='double3c',p='double3Attr',at='double')
+    
+    # Array Attributes 
+    
+    doAttrAdd(ln='Int32ArrayAttr',dt='Int32Array')
+    doAttrAdd(ln='doubleArrayAttr',dt='doubleArray')
+    doAttrAdd(ln='pointArrayAttr',dt='pointArray')
+    doAttrAdd(ln='vectorArrayAttr',dt='vectorArray')
+    
+    doAttrAdd(ln='stringArrayAttr',dt='stringArray')
+    doAttrAdd(ln='stringAttr',dt="string")
+
+    # Matrix
+    
+    doAttrAdd(ln='matrixAttr',dt="matrix")
     
     # non numeric
-    cmds.addAttr(ln='sphereAttr',dt='sphere')
-    cmds.addAttr(ln='coneAttr',dt='cone')
-    cmds.addAttr(ln='meshAttr',dt='mesh')
-    cmds.addAttr(ln='latticeAttr',dt='lattice')
-    cmds.addAttr(ln='spectrumRGBAttr',dt='spectrumRGB')
-    cmds.addAttr(ln='reflectanceRGBAttr',dt='reflectanceRGB')
-    cmds.addAttr(ln='componentListAttr',dt='componentList')
-    cmds.addAttr(ln='attrAliasAttr',dt='attributeAlias')
-    cmds.addAttr(ln='curveAttr',dt='nurbsCurve')
-    cmds.addAttr(ln='surfaceAttr',dt='nurbsSurface')
-    cmds.addAttr(ln='trimFaceAttr',dt='nurbsTrimface')
-    cmds.addAttr(ln='polyFaceAttr',dt='polyFaces')
+    doAttrAdd(ln='sphereAttr',dt='sphere')
+    doAttrAdd(ln='coneAttr',dt='cone')
+    doAttrAdd(ln='meshAttr',dt='mesh')
+    doAttrAdd(ln='latticeAttr',dt='lattice')
+    doAttrAdd(ln='spectrumRGBAttr',dt='spectrumRGB')
+    doAttrAdd(ln='reflectanceRGBAttr',dt='reflectanceRGB')
+    doAttrAdd(ln='componentListAttr',dt='componentList')
+    doAttrAdd(ln='attrAliasAttr',dt='attributeAlias')
+    doAttrAdd(ln='curveAttr',dt='nurbsCurve')
+    doAttrAdd(ln='surfaceAttr',dt='nurbsSurface')
+    doAttrAdd(ln='trimFaceAttr',dt='nurbsTrimface')
+    doAttrAdd(ln='polyFaceAttr',dt='polyFaces')
+    
+    return attributeTypesToNames, dataTypesToNames, namesToType
     
 class testCase_mayaSetAttr(unittest.TestCase):
     """
@@ -225,6 +261,22 @@ def test_pymel_setAttr():
             #testSetAttr()
             yield testSetAttr,
             
+class testCase_enumAttr(unittest.TestCase):
+    def setUp(self):
+        self.node = cmds.createNode('transform')
+        self.attrName = 'testEnum'
+        self.attr = '%s.%s' % (self.node, self.attrName)
+        cmds.addAttr(self.node, at='enum', longName=self.attrName,
+                     enumName='First:Second:Third', keyable=True)
+        
+    def test_setString(self):
+        print "self.attr:", self.attr
+        setAttr(self.attr, 'Second')
+        self.assertEqual(1, getAttr(self.attr))
+        setAttr(self.attr, 'Third', asString=1)
+        self.assertEqual(2, getAttr(self.attr))
+        self.assertRaises(MayaAttributeEnumError, setAttr, self.attr, 'foo')
+            
 class testCase_nodesAndAttributes(unittest.TestCase):
 
     def setUp(self):
@@ -270,12 +322,33 @@ class testCase_nodesAndAttributes(unittest.TestCase):
         self.assertEqual( self.sphere1.primaryVisibility, shape.primaryVisibility )
      
     def test_attribute_aliases(self):
-        self.assert_( isinstance(PyNode(self.sphere1.name() + '.myalias'), Attribute ) )
-        self.assert_( isinstance(self.sphere1.attr('myalias'), Attribute) )
+        fromPyNode = pm.PyNode(self.sphere1.name() + '.myalias')
+        self.assertTrue( isinstance(fromPyNode, pm.Attribute ) )
+        fromAttr = self.sphere1.attr('myalias')
+        self.assertTrue( isinstance(fromAttr, pm.Attribute) )
+        
         res1 = self.sphere1.listAttr(alias=1)
         res2 = self.sphere1.listAliases()
         self.assertEqual( res1[0], res2[0][1] )
+        self.assertEqual(fromPyNode, res1[0])
+        self.assertEqual(fromAttr, fromPyNode)
+
+    def test_multi_compound_attribute_aliases(self):
+        remap = pm.createNode('remapValue')
+        attr = remap.attr('value')[0].value_Position
+        attr.setAlias('alfred')
         
+        fromPyNode = pm.PyNode(remap.name() + '.alfred')
+        self.assertTrue( isinstance(fromPyNode, pm.Attribute ) )
+        fromAttr = remap.attr('alfred')
+        self.assertTrue( isinstance(fromAttr, pm.Attribute) )
+        
+        res1 = remap.listAttr(alias=1)
+        res2 = remap.listAliases()
+        self.assertEqual( res1[0], res2[0][1] )
+        self.assertEqual(fromPyNode, res1[0])
+        self.assertEqual(fromAttr, fromPyNode)
+
     def test_pmcmds_objectErrors(self):
         self.assertRaises( MayaAttributeError, setAttr, 'foo.bar', 0 )
         self.assertRaises( MayaAttributeError, getAttr, 'foo.bar' )
@@ -375,8 +448,8 @@ class testCase_nodesAndAttributes(unittest.TestCase):
 #        import pymel.examples.example2
         
     def test_classCreation(self):
-        self.newobjs.append( Joint() )
-        self.newobjs.append( Transform() )
+        self.newobjs.append( nt.Joint() )
+        self.newobjs.append( nt.Transform() )
 
 
      
@@ -405,7 +478,7 @@ class testCase_nodesAndAttributes(unittest.TestCase):
 
     def test_transform_rotation(self):
         SCENE.persp.setRotation( [10,20,0], 'world')
-        print repr( SCENE.persp.getRotation( 'world' ) )
+        #print repr( SCENE.persp.getRotation( 'world' ) )
         self.assert_( SCENE.persp.getRotation( 'world' ).isEquivalent( datatypes.EulerRotation([10.0, 20.0, 0.0])) )
         SCENE.persp.setRotation( [0,90,0], 'world', relative=1)
 
@@ -671,7 +744,7 @@ class testCase_duplicateShape(unittest.TestCase):
             
             # As of Maya 2009, shapeCompare doesn't handle subdivs, and always
             #    returns 1 for curves
-            if not isinstance(origShape, (Subdiv, NurbsCurve)):
+            if not isinstance(origShape, (nt.Subdiv, nt.NurbsCurve)):
                 if shapeCompare(origShape, shapeDup) != 0:
                     self.fail("shapes do not compare equal: %r, %r)" %
                               (origShape, shapeDup))
@@ -704,8 +777,8 @@ class test_PyNodeWraps(unittest.TestCase):
         cube = cmds.polyCube()[0]
         j1 = cmds.joint(p=(0,0,-1))
         cmds.joint(p=(0,0,1))
-        skin = skinCluster(cube, j1)[0]
-        self.assertPyNodes(skin.getGeometry(), DependNode)
+        skin = skinCluster(cube, j1)
+        self.assertPyNodes(skin.getGeometry(), nt.DependNode)
         
     def test_addDynamic(self):
         # Create an emitter
@@ -814,7 +887,7 @@ for cmdName in ('''aimConstraint geometryConstraint normalConstraint
         constr = melCmd( 'circle1', 'cube1')[0]
         self.assertPyNodes(pyCmd(constr, q=1, targetList=1))
         self.assertPyNodes(pyCmd(constr, q=1, weightAliasList=1), Attribute)
-        if 'worldUpObject' in _factories.cmdlist[cmdName]['flags']:
+        if 'worldUpObject' in factories.cmdlist[cmdName]['flags']:
             self.assertEqual(pyCmd(constr, q=1, worldUpObject=1), None)
             cmds.polySphere(name='sphere1')
             melCmd(constr, e=1, worldUpType='object', worldUpObject='sphere1')
@@ -842,23 +915,83 @@ class test_commands(unittest.TestCase):
         self.assert_( duplicate(self.dependNode) )
         
 class test_plugins(unittest.TestCase):
+    def setUp(self):
+        cmds.file(new=1, f=1)
+        if cmds.pluginInfo('Fur', q=1, loaded=1):
+            cmds.unloadPlugin('Fur')
+            cmds.file(new=1, f=1)
+        # Currently, PyNode classes for node types defined in 'default'
+        # plugins are always created when pymel starts up, even if the plugin
+        # wasn't loaded... so we need to make sure we delete 'FurGlobals' if it
+        # was made
+        if 'FurGlobals' in nt.__dict__:
+            del nt.__dict__['FurGlobals']
+        if 'FurGlobals' in nt.__class__.__dict__:
+            delattr(nt.__class__, 'FurGlobals')
+        # Also, 'unload' pymel.all if present - if it's there, it will cause
+        # any new PyNodes to skip lazy loading
+        sys.modules.pop('pymel.all', None)
+        
     def test01_load(self):
+        self.assert_( 'FurGlobals' not in nt.__dict__ )
         loadPlugin('Fur')
-        self.assert_( 'FurGlobals' not in pymel.core.nodetypes.__dict__ )
-        # lazer loader exists
-        self.assert_( 'FurGlobals' in pymel.core.nodetypes.__class__.__dict__ )
+        self.assert_( 'FurGlobals' not in nt.__dict__ )
+        # lazy loader exists
+        self.assert_( 'FurGlobals' in nt.__class__.__dict__ )
         # after accessing, the lazy loader should generate the class
-        pymel.core.nodetypes.FurGlobals
-        self.assert_( 'FurGlobals' in pymel.core.nodetypes.__dict__ )
+        nt.FurGlobals
+        self.assert_( 'FurGlobals' in nt.__dict__ )
         
-    def test1_unload(self):
+    def test02_unload(self):
+        loadPlugin('Fur')
         unloadPlugin('Fur')
-        self.assert_( 'FurGlobals' not in pymel.core.nodetypes.__dict__ )
+        self.assert_( 'FurGlobals' not in nt.__dict__ )
         # after accessing, the lazy loader should generate the class
-        self.assertRaises(AttributeError, getattr, pymel.core.nodetypes, 'FurGlobals')
-        self.assert_( 'FurGlobals' not in pymel.core.nodetypes.__dict__ )
-        self.assert_( 'FurGlobals' not in pymel.core.nodetypes.__class__.__dict__ )
+        self.assertRaises(AttributeError, getattr, nt, 'FurGlobals')
+        self.assert_( 'FurGlobals' not in nt.__dict__ )
+        self.assert_( 'FurGlobals' not in nt.__class__.__dict__ )
+
+class test_move(unittest.TestCase):
+    def setUp(self):
+        cmds.file(new=1, f=1)
+
+    def test_relativeMove(self):
+        cube = pm.polyCube()[0]
+        pm.move(1,0,0, xyz=True, r=1)
+        self.assertEqual(cube.getTranslation(), dt.Vector(1,0,0))
+        pm.move(0,1,0, xyz=True, r=1)
+        self.assertEqual(cube.getTranslation(), dt.Vector(1,1,0))
+        pm.move(0,0,1, xyz=True, r=1)
+        self.assertEqual(cube.getTranslation(), dt.Vector(1,1,1))
         
+class test_lazyDocs(unittest.TestCase):
+    # Test can't be reliably run if pymel.all is imported... re-stubbing
+    # doesn't work
+#    def test_stubMethodDocs(self):
+#        origCmd = cmd = cmds.filter
+#        try:
+#            # if maya.cmds.filter has already been 'de-stubbed', re-stub it
+#            if not cmd.__name__ == 'stubFunc':
+#                # maya.cmds.dynamicLoad will fail if a library has already been
+#                # loaded, so we could just feed in a dummy library..
+#                cmd = _makeStubFunc('filter', 'Devices.dll')
+#                cmds.filter = cmd
+#            self.assertTrue('Creates or modifies a filter node' in 
+#                            pm.nt.Filter.__doc__)
+#        finally:
+#            if cmds.filter != origCmd:
+#                cmds.filter = origCmd
+                
+    def test_getCmdName(self):
+        cmd = cmds.filter
+        if not cmd.__name__ == 'stubFunc':
+            # maya.cmds.dynamicLoad will fail if a library has already been
+            # loaded, so we could just feed in a dummy library..
+            cmd = _makeStubFunc('filter', 'Devices.dll')
+        self.assertEqual(pmcmds.getCmdName(cmd), 'filter')
+        
+         
+
 #suite = unittest.TestLoader().loadTestsFromTestCase(testCase_nodesAndAttributes)
 #suite.addTest(unittest.TestLoader().loadTestsFromTestCase(testCase_listHistory))
 #unittest.TextTestRunner(verbosity=2).run(suite)

@@ -48,7 +48,7 @@ def mayaDocsLocation(version=None):
     # Want the docs for a different version, or maya isn't initialized yet
     if not docLocation or not os.path.isdir(docLocation):
         docLocation = getMayaLocation(version) # use original version
-        if docLocation is None :
+        if docLocation is None and version is not None:
             docLocation = getMayaLocation(None)
             _logger.warning("Could not find an installed Maya for exact version %s, using first installed Maya location found in %s" % (version, docLocation) )
 
@@ -113,7 +113,9 @@ class CommandDocParser(HTMLParser):
             numArgs = len(args)
             if numArgs == 0:
                 args = bool
-                numArgs = 1
+                #numArgs = 1
+                # numArgs will stay at 0, which is the number of mel arguments.
+                # this flag should be renamed to numMelArgs
             elif numArgs == 1:
                 args = args[0]
 
@@ -355,11 +357,13 @@ class CommandModuleDocParser(HTMLParser):
 class ApiDocParser(object):
     OBSOLETE_MSG = ['NO SCRIPT SUPPORT.', 'This method is not available in Python.']
     DEPRECATED_MSG = ['This method is obsolete.', 'Deprecated:']
-    def __init__(self, apiModule, version=None, verbose=False):
+    
+    def __init__(self, apiModule, version=None, verbose=False, enumClass=tuple):
         version = versions.installName() if version is None else version
         self.apiModule = apiModule
         self.verbose = verbose
         self.docloc = mayaDocsLocation('2009' if version=='2008' else version)
+        self.enumClass = enumClass
         if not os.path.isdir(self.docloc):
             raise IOError, "Cannot find maya documentation. Expected to find it at %s" % self.docloc
 
@@ -444,12 +448,28 @@ class ApiDocParser(object):
         """remove all common prefixes from list of enum values"""
         if len(enumDict) > 1:
             enumList = enumDict.keys()
-            splitEnums = [ [ y for y in re.split( '([A-Z0-9][a-z0-9]*)', x ) if y ] for x in enumList ]
-            splitEnumsCopy = splitEnums[:]
-            for partList in zip( *splitEnumsCopy ):
+            capitalizedRe =  re.compile('([A-Z0-9][a-z0-9]*)')
+            
+            # We first aim to remove all similar 'camel-case-group' prefixes, ie:
+            # if our enums look like:
+            #    kFooBar
+            #    kFooSomeThing
+            #    kFooBunnies
+            # we want to get Bar, SomeThing, Bunnies
+            
+            # {'kFooBar':0, 'kFooSomeThing':1} 
+            #     => [['k', 'Foo', 'Some', 'Thing'], ['k', 'Foo', 'Bar']]
+            splitEnums = [ [ y for y in capitalizedRe.split( x ) if y ] for x in enumList ]
+            
+            # [['k', 'Invalid'], ['k', 'Pre', 'Transform']]
+            #     => [('k', 'k'), ('Foo', 'Foo'), ('Some', 'Bar')]
+            splitZip = zip( *splitEnums )
+            for partList in splitZip:
                 if  tuple([partList[0]]*len(partList)) == partList:
                     [ x.pop(0) for x in splitEnums ]
                 else: break
+            # splitEnums == [['Some', 'Thing'], ['Bar']]    
+            
             joinedEnums = [ util.uncapitalize(''.join(x), preserveAcronymns=True ) for x in splitEnums]
             for i, enum in enumerate(joinedEnums):
                 if _iskeyword(enum):
@@ -463,7 +483,7 @@ class ApiDocParser(object):
                     #print enumList
                     #break
 
-            pymelEnumDict = dict( [ (k2,enumDict[k1]) for k1, k2 in zip( enumList, joinedEnums ) ] )
+            pymelEnumDict = dict( (new,enumDict[orig]) for orig, new in zip( enumList, joinedEnums ) )
 
             #print "enums", joinedEnums
             return pymelEnumDict
@@ -487,14 +507,14 @@ class ApiDocParser(object):
 
         # the enum is on another class
         if '::' in type:
-            type = self.apiModule.Enum( type.split( '::') )
+            type = self.enumClass( type.split( '::') )
 
         # the enum is on this class
         elif type in self.enums:
-            type = self.apiModule.Enum( [self.apiClassName, type] )
+            type = self.enumClass( [self.apiClassName, type] )
 
         elif type[0].isupper() and 'Ptr' not in type and not hasattr( self.apiModule, type ) and type not in otherTypes+missingTypes+notTypes:
-            type = self.apiModule.Enum( [self.apiClassName, type] )
+            type = self.enumClass( [self.apiClassName, type] )
             if type not in self.badEnums:
                 self.badEnums.append(type)
                 _logger.warn( "Suspected Bad Enum: %s", type )
@@ -506,7 +526,7 @@ class ApiDocParser(object):
 
         if default is None: return default
 
-        if isinstance( type, self.apiModule.Enum ):
+        if isinstance( type, self.enumClass ):
 
             # the enum is on another class
             if '::' in default:
@@ -515,7 +535,7 @@ class ApiDocParser(object):
             else:
                 enumConst = default
 
-            return self.apiModule.Enum([type[0], type[1], enumConst])
+            return self.enumClass([type[0], type[1], enumConst])
 
         return default
 
@@ -641,13 +661,11 @@ class ApiDocParser(object):
                         else:
                             enumDocs[enumKey] = str(docItem.contents[0]).strip()
 
-                    #self.enums[self.currentMethod] = dict( [ (x,i) for i, x in enumerate(enumList) ] )
-                    #self.pymelEnums[self.currentMethod] = dict( [ (x,i) for i, x in enumerate(pymelEnumList) ] )
                     pymelEnumList = self.getPymelEnums( enumValues )
                     for val, pyval in zip(enumValues,pymelEnumList):
                         enumDocs[pyval] = enumDocs[val]
 
-                    enumInfo = {'values' : util.Enum(self.currentMethod, enumValues),
+                    enumInfo = {'values' : util.Enum(self.currentMethod, enumValues, multiKeys=True),
                                 'valueDocs' : enumDocs,
 
                                   #'doc' : methodDoc
@@ -656,7 +674,7 @@ class ApiDocParser(object):
                     #print enumList
 
                     self.enums[self.currentMethod] = enumInfo
-                    self.pymelEnums[self.currentMethod] = util.Enum(self.currentMethod, pymelEnumList)
+                    self.pymelEnums[self.currentMethod] = util.Enum(self.currentMethod, pymelEnumList, multiKeys=True)
 
                 except AttributeError, msg:
                     _logger.error( "FAILED ENUM: %s", msg )
@@ -846,7 +864,12 @@ class ApiDocParser(object):
                                 else:
                                     dir = 'in'
                             elif dir == '[out]':
-                                dir = 'out'
+                                if types[name] == 'MAnimCurveChange':
+                                    _logger.warn( "%s.%s(%s): Setting MAnimCurveChange argument '%s' to an input arg (instead of output)" % (
+                                                                        self.apiClassName,self.currentMethod,', '.join(names), name))
+                                    dir = 'in'
+                                else:
+                                    dir = 'out'
                             else: raise
 
                             assert name in names

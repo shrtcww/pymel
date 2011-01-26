@@ -83,9 +83,9 @@ def pythonToMelCmd(command, *args, **kwargs):
     if kwargs:
         # keyword args trigger us to format as a command rather than a procedure
         strFlags = []
-        if command in _cmdcache.cmdlist:
-            flags = _cmdcache.cmdlist[command]['flags']
-            shortFlags = _cmdcache.cmdlist[command]['shortFlags']
+        if command in _factories.cmdlist:
+            flags = _factories.cmdlist[command]['flags']
+            shortFlags = _factories.cmdlist[command]['shortFlags']
         else:
 #            # Make a dummy flags dict - basically, just assume that q / e
 #            # are bool flags with no args... 
@@ -591,6 +591,19 @@ class Env(object):
     def setMaxTime( self, val ):
         cmds.playbackOptions( maxTime=val )
     maxTime = property( getMaxTime, setMaxTime )
+    
+    def getAnimStartTime( self ):
+        return cmds.playbackOptions( q=1, animationStartTime=1 )
+    def setAnimStartTime( self, val ):
+        cmds.playbackOptions( animationStartTime=val )
+    animStartTime = property(getAnimStartTime, setAnimStartTime)
+
+    def getAnimEndTime( self ):
+        return cmds.playbackOptions( q=1, animationEndTime=1 )
+    def setAnimEndTime( self, val ):
+        cmds.playbackOptions( animationEndTime=val )
+    animEndTime = property(getAnimEndTime, setAnimEndTime)
+
 
 env = Env()
 

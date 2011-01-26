@@ -178,6 +178,8 @@ class PyUI(unicode):
                     try:
                         if issubclass(newcls,Layout):
                             parent = windows.layout(name, q=1, p=1)
+                        elif issubclass(newcls,OptionMenu):
+                            parent = windows.optionMenu(name, q=1, p=1)
                         elif issubclass(newcls,Menu):
                             parent = windows.menu(name, q=1, p=1)
                         else:
@@ -262,11 +264,12 @@ class Layout(PyUI):
         global _withParentStack
         _withParentStack.pop()
         if _withParentStack:
-            cmds.setParent(_withParentStack[-1])
+            parent = _withParentStack[-1]
         else:
             parent = self.pop()
             while parent and cmds.objectTypeUI(parent) == u'rowGroupLayout':
                 parent = parent.pop()
+        cmds.setParent(parent)
 
     def children(self):
         #return [ PyUI( self.name() + '|' + x) for x in self.__melcmd__(self, q=1, childArray=1) ]
@@ -336,6 +339,7 @@ class Window(Layout):
 #            return self
 
     def __exit__(self, type, value, traceback):
+        super(Window, self).__exit__(type, value, traceback)
         self.show()
 
     def show(self):
@@ -562,7 +566,7 @@ class Menu(PyUI):
 class PopupMenu(Menu):
     __metaclass__ = _factories.MetaMayaUIWrapper
 
-class OptionMenu(Menu):
+class OptionMenu(PopupMenu):
     __metaclass__ = _factories.MetaMayaUIWrapper
 
     def addMenuItems( self, items, title=None):
@@ -611,13 +615,11 @@ class CommandMenuItem(PyUI):
     __metaclass__ = _factories.MetaMayaUIWrapper
     __melui__ = 'menuItem'
     def __enter__(self):
-        cmds.setParent(self,menu=True)
+        SubMenuItem(self).__enter__()
         return self
 
     def __exit__(self, type, value, traceback):
-        p = self.parent()
-        cmds.setParent(p,menu=True)
-        return p
+        return SubMenuItem(self).__exit__(type, value, traceback)
 
 def MenuItem(name=None, create=False, **kwargs):
     if PyUI._isBeingCreated(name, create, kwargs):
@@ -901,6 +903,55 @@ def _createUIClasses():
             dynModule[classname] = (_factories.MetaMayaUIWrapper, (classname, bases, {}) )
 
 _createUIClasses()
+
+class MainProgressBar(dynModule.ProgressBar):
+    '''Context manager for main progress bar
+
+    If an exception occur after beginProgress() but before endProgress() maya
+    gui becomes unresponsive. Use this class to escape this behavior.
+
+     :Parameters:
+        minValue : int
+            Minimum or startingvalue of progress indicatior. If the progress
+            value is less than the minValue, the progress value will be set 
+            to the minimum.  Default value is 0
+
+        maxValue : int
+            The maximum or endingvalue of the progress indicator. If the
+            progress value is greater than the maxValue, the progress value
+            will be set to the maximum. Default value is 100.
+
+        interuruptable : bool
+            Set to True if the isCancelled flag should respond to attempts to
+            cancel the operation. Setting this to true will put make the help
+            line display message to the user indicating that they can cancel
+            the operation.
+
+    Here's an example:
+
+    .. python::
+        with MainProgressBar(0,20,True) as bar:
+            bar.setStatus('Calculating...')
+            for i in range(0,20):
+                bar.setProgress(i)
+                if bar.getIsCancelled():
+                    break
+    '''
+    def __new__(cls, minValue=0, maxValue=100, interruptable=True):
+        from language import melGlobals
+        bar = dynModule.ProgressBar.__new__( 
+            cls, melGlobals['gMainProgressBar'], create=False)
+        bar.setMinValue(minValue)
+        bar.setMaxValue(maxValue)
+        bar.setIsInterruptable(interruptable)
+        return bar
+
+    def __enter__(self):
+        self.beginProgress()
+        return self
+
+    def __exit__(self, *args):
+        self.endProgress()
 
 class VectorFieldGrp( dynModule.FloatFieldGrp ):
     def __new__(cls, name=None, create=False, *args, **kwargs):

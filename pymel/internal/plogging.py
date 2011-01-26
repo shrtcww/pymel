@@ -17,7 +17,7 @@ from pymel.util.decoration import decorator
 
 
 PYMEL_CONF_ENV_VAR = 'PYMEL_CONF'
-
+PYMEL_LOGLEVEL_ENV_VAR = 'PYMEL_LOGLEVEL'
 
 #===============================================================================
 # DEFAULT FORMAT SETUP
@@ -41,12 +41,12 @@ def _fixMayaOutput():
 _fixMayaOutput()
 
 def getConfigFile():
-    if PYMEL_CONF_ENV_VAR in os.environ:
-        configFile = os.environ[PYMEL_CONF_ENV_VAR]
-        if os.path.isfile(configFile):
-            return configFile
-    if 'HOME' in os.environ:
-        configFile = os.path.join( os.environ['HOME'], "pymel.conf")
+    configFile = os.environ.get(PYMEL_CONF_ENV_VAR)
+    if configFile and os.path.isfile(configFile):
+        return configFile
+    home = os.environ.get('HOME')
+    if home:
+        configFile = os.path.join( home, "pymel.conf")
         if os.path.isfile(configFile):
             return configFile
     moduleDir = os.path.dirname( os.path.dirname( sys.modules[__name__].__file__ ) )
@@ -109,12 +109,16 @@ def pymelLogFileConfig(fname, defaults=None, disable_existing_loggers=False):
     rootHandlers = root.handlers[:]
     oldLogHandlers = {}
 
-    # can't use loggerDict.iteritems, as some of the values are
-    # 'PlaceHolder' items... need to use logging.getLogger()
-    for loggerName in root.manager.loggerDict:
-        logger = logging.getLogger(loggerName)
-        # make sure you get a COPY of handlers!
-        oldLogHandlers[loggerName] = logger.handlers[:]
+    # Don't use getLogger while iterating through loggerDict, as that
+    # may actually create a logger, and change the size of the dict
+    # ...instead, just ignore any PlaceHolder instances we get, as they
+    # won't have any handlers to worry about anyway
+    # thanks to pierre.augeard for pointing this one out
+    for loggerName, logger in root.manager.loggerDict.iteritems():
+        # Make sure it's not a PlaceHolder
+        if isinstance(logger, logging.Logger):
+            # make sure you get a COPY of handlers!
+            oldLogHandlers[loggerName] = logger.handlers[:]
 
     # critical section
     logging._acquireLock()
@@ -176,8 +180,9 @@ def getLogger(name):
     calling `getLogger(__name__)`.  If the module is a package, "__init__" will
     be stripped from the logger name
     """
-    if name.endswith('.__init__'):
-        name = name[:-9]
+    suffix = '.__init__'
+    if name.endswith(suffix):
+        name = name[:-len(suffix)]
     return logging.getLogger(name)
 
 # keep as an enumerator so that we can keep the order
@@ -190,6 +195,11 @@ def nameToLevel(name):
 
 def levelToName(level):
     return logLevels.getKey(level)
+
+# variable must exist AND be non-empty
+if os.environ.get(PYMEL_LOGLEVEL_ENV_VAR):
+    pymelLogger.setLevel(nameToLevel(os.environ[PYMEL_LOGLEVEL_ENV_VAR]))
+
 
 #===============================================================================
 # DECORATORS
@@ -225,7 +235,8 @@ def _setupLevelPreferenceHook():
     # retrieve the preference as a string name, for human readability.
     # we need to use MGlobal because cmds.optionVar might not exist yet
     # TODO : resolve load order for standalone.  i don't think that userPrefs is loaded yet at this point in standalone.
-    levelName = os.environ.get( 'PYMEL_LOGLEVEL', MGlobal.optionVarStringValue( LOGLEVEL_OPTVAR ) )
+    levelName = os.environ.get( PYMEL_LOGLEVEL_ENV_VAR,
+                                MGlobal.optionVarStringValue( LOGLEVEL_OPTVAR ) )
     if levelName:
         level =  min( logging.WARNING, nameToLevel(levelName) ) # no more than WARNING level
         pymelLogger.setLevel(level)

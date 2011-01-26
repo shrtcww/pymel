@@ -61,7 +61,6 @@ def _pluginLoaded( *args ):
         return
 
     _logger.debug("Plugin loaded: %s", pluginName)
-
     _pluginData[pluginName] = {}
 
     try:
@@ -91,7 +90,11 @@ def _pluginLoaded( *args ):
                 _logger.warning("exception: %s" % str(msg) )
 
     # Nodes
-    mayaTypes = cmds.pluginInfo(pluginName, query=1, dependNode=1)
+    try:
+        mayaTypes = cmds.pluginInfo(pluginName, query=1, dependNode=1)
+    except:
+        _logger.error("Failed to get depend nodes list from %s", pluginName)
+        mayaTypes = None
     #apiEnums = cmds.pluginInfo(pluginName, query=1, dependNodeId=1)
     if mayaTypes :
 
@@ -106,11 +109,30 @@ def _pluginLoaded( *args ):
                 _logger.warning("could not find callback id!")
 
             _pluginData[pluginName]['dependNodes'] = mayaTypes
+            allTypes = set(cmds.ls(nodeTypes=1))
             for mayaType in mayaTypes:
+                # make sure it's a 'valid' type - some plugins list node types
+                # that don't show up in ls(nodeTypes=1), and aren't creatable
+                # ...perhaps they're abstract types?
+                # Unfortunately, can't check this, as only plugin I know of
+                # that has such a node - mayalive, mlConstraint - is only
+                # available up to 2009, which has a bug with allNodeTypes...
+                # Oddly enough, mlConstraint WILL show up in allTypes here,
+                # but not after the plugin is loaded / callback finishes...?
+                if mayaType not in allTypes:
+                    continue
+                
                 _logger.debug("Adding node: %s" % mayaType)
-                inheritance = _factories.getInheritance( mayaType )
+                try:
+                    inheritance = _factories.getInheritance( mayaType )
+                except Exception:
+                    import traceback
+                    _logger.debug(traceback.format_exc())
+                    inheritance = None
 
-                if not util.isIterable(inheritance):
+                if inheritance == 'manip':
+                    continue
+                elif not inheritance or not util.isIterable(inheritance):
                     _logger.warn( "could not get inheritance for mayaType %s" % mayaType)
                 else:
                     #__logger.debug(mayaType, inheritance)
@@ -121,9 +143,6 @@ def _pluginLoaded( *args ):
                     for node in inheritance:
                         nodeName = _factories.addPyNode( nodetypes, node, parent )
                         parent = node
-                        if 'pymel.all' in sys.modules:
-                            # getattr forces loading of Lazy object
-                            setattr( sys.modules['pymel.all'], nodeName, getattr(nodetypes,nodeName) )
 
         # evidently isOpeningFile is not avaiable in maya 8.5 sp1.  this could definitely cause problems
         if _api.MFileIO.isReadingFile() or ( _versions.current() >= _versions.v2008 and _api.MFileIO.isOpeningFile() ):
@@ -152,6 +171,7 @@ def _pluginUnloaded(*args):
         pluginName = args[0]
 
     _logger.debug("Plugin unloaded: %s" % pluginName)
+    
     try:
         data = _pluginData.pop(pluginName)
     except KeyError:

@@ -33,6 +33,9 @@ _thisModule = sys.modules[__name__]
 
 ## Mesh Components
 
+# If we're reloading, clear the pynode types out
+_factories.clearPyNodeTypes()
+
 class DependNode( general.PyNode ):
     __apicls__ = _api.MFnDependencyNode
     __metaclass__ = _factories.MetaMayaNodeWrapper
@@ -54,6 +57,17 @@ class DependNode( general.PyNode ):
 
 #    def __init__(self, *args, **kwargs ):
 #        self.apicls.__init__(self, self._apiobject.object() )
+
+    @_util.universalmethod
+    def __melobject__(self):
+        """Special method for returning a mel-friendly representation."""
+        if isinstance(self, DependNode):
+            # For instance, return the node's name...
+            return self.name()
+        else:
+            # For the class itself, return the mel node name
+            return self.__melnode__
+
     def __repr__(self):
         """
         :rtype: `unicode`
@@ -279,7 +293,14 @@ class DependNode( general.PyNode ):
         return general.listConnections(self, **kwargs)
 
     def shadingGroups(self):
-        """list any shading groups in the future of this object - works for shading nodes, transforms, and shapes
+        """list any shading groups in the future of this object - works for
+        shading nodes, transforms, and shapes
+        
+        Also see listSets(type=1) - which returns which 'rendering sets' the
+        object is a member of (and 'rendering sets' seem to consist only of
+        shading groups), whereas this method searches the object's future for
+        any nodes of type 'shadingEngine'.   
+        
         :rtype: `DependNode` list
         """
         return self.future(type='shadingEngine')
@@ -314,25 +335,29 @@ class DependNode( general.PyNode ):
         Note: this is still experimental.
         """
         if inspect.isclass(obj):
+            self = None
             cls = obj # keep things familiar
-            try:
-                nodeMfn = cls.__apiobjects__['MFn']
-            except KeyError:
-                cls.__apiobjects__['dagMod'] = _api.MDagModifier()
-                cls.__apiobjects__['dgMod'] = _api.MDGModifier()
-                # TODO: make something more reliable than uncapitalize
-                obj = _apicache._makeDgModGhostObject( _util.uncapitalize(cls.__name__),
-                                                                cls.__apiobjects__['dagMod'],
-                                                                cls.__apiobjects__['dgMod'] )
-                nodeMfn = cls.__apicls__(obj)
-                cls.__apiobjects__['MFn'] = nodeMfn
-
         else:
             self = obj # keep things familiar
-            nodeMfn = self.__apimfn__()
-
-        # TODO: create a wrapped class for MFnAttribute
-        return _api.MFnAttribute( nodeMfn.attribute(attr) )
+            cls = type(obj)
+        
+        attributes = cls.__apiobjects__.setdefault('MFnAttributes', {})
+        attrObj = attributes.get(attr, None)
+        if not _api.isValidMObject(attrObj):
+            if self is None:
+                # We don't have an instance of the node, we need
+                # to make a ghost one...
+                dagMod = _api.MDagModifier()
+                dgMod = _api.MDGModifier()
+                nodeObj = _apicache._makeDgModGhostObject( cls.__melnode__,
+                                                           dagMod,
+                                                           dgMod )
+                nodeMfn = cls.__apicls__(obj)
+            else:
+                nodeMfn = self.__apimfn__()
+            attrObj = nodeMfn.attribute(attr)
+            attributes[attr] = attrObj
+        return general.AttributeDefaults( attrObj )
 
     def attr(self, attr):
         """
@@ -381,15 +406,24 @@ class DependNode( general.PyNode ):
                 try:
                     plug = self.__apimfn__().findPlug( attr, False )
                 except RuntimeError:
+                    # Don't use .findAlias, as it always returns the 'base'
+                    # attribute - ie, if the alias is to foo[0].bar, it will
+                    # just point to foo
                     # aliases
-                    obj = _api.MObject()
-                    self.__apimfn__().findAlias( attr, obj )
-                    plug = self.__apimfn__().findPlug( obj, False )
+                    #obj = _api.MObject()
+                    #self.__apimfn__().findAlias( attr, obj )
+                    #plug = self.__apimfn__().findPlug( obj, False )
+                    
                     # the following technique gets aliased attributes as well. turning dagPlugs to off saves time because we already
                     # know the dagNode. however, certain attributes, such as rotatePivot, are detected as components,
                     # despite the fact that findPlug finds them as MPlugs. need to look into this
                     # TODO: test speed versus above method
-                    # _api.toApiObject(self.name() + '.' + attr, dagPlugs=False)
+                    try:
+                        plug = _api.toApiObject(self.name() + '.' + attr, dagPlugs=False)
+                    except RuntimeError:
+                        raise
+                    if not isinstance(plug, _api.MPlug):
+                        raise RuntimeError
                 return general.Attribute( self.__apiobject__(), plug )
 
         except RuntimeError:
@@ -517,7 +551,7 @@ class DependNode( general.PyNode ):
 
         :rtype: `unicode`
         """
-        return other.NameParser(self.name()).stripNum()
+        return other.NameParser(self).stripNum()
 
     def extractNum(self):
         """Return the trailing numbers of the node name. If no trailing numbers are found
@@ -529,7 +563,7 @@ class DependNode( general.PyNode ):
 
         :rtype: `unicode`
         """
-        return other.NameParser(self.name()).extractNum()
+        return other.NameParser(self).extractNum()
 
     def nextUniqueName(self):
         """Increment the trailing number of the object until a unique name is found
@@ -538,7 +572,7 @@ class DependNode( general.PyNode ):
 
         :rtype: `unicode`
         """
-        return other.NameParser(self.name()).nextUniqueName()
+        return other.NameParser(self).nextUniqueName()
 
     def nextName(self):
         """Increment the trailing number of the object by 1
@@ -547,11 +581,11 @@ class DependNode( general.PyNode ):
 
         >>> from pymel.core import *
         >>> SCENE.lambert1.nextName()
-        DependNodeName('lambert2')
+        DependNodeName(u'lambert2')
 
         :rtype: `unicode`
         """
-        return other.NameParser(self.name()).nextName()
+        return other.NameParser(self).nextName()
 
     def prevName(self):
         """Decrement the trailing number of the object by 1
@@ -560,7 +594,7 @@ class DependNode( general.PyNode ):
 
         :rtype: `unicode`
         """
-        return other.NameParser(self.name()).prevName()
+        return other.NameParser(self).prevName()
 
     @classmethod
     def registerVirtualSubClass( cls, nameRequired=False ):
@@ -950,6 +984,15 @@ class DagNode(Entity):
         res = general.PyNode( res )
         return res
 
+    @staticmethod
+    def _getDagParent(dag):
+        if dag.length() <= 1:
+            return None
+        # Need a copy as we'll be modifying it...
+        dag = _api.MDagPath(dag)
+        dag.pop()
+        return dag
+
     def getParent(self, generations=1):
         """
         Modifications:
@@ -977,6 +1020,9 @@ class DagNode(Entity):
               A value of 0 will return the same node.
               The default value is 1.
 
+              If generations is None, it will be interpreted as 'return all
+              parents', and a list will be returned.
+              
               Since the original command returned None if there is no parent, to sync with this behavior, None will
               be returned if generations is out of bounds (no IndexError will be thrown).
 
@@ -985,34 +1031,23 @@ class DagNode(Entity):
 
         # Get the parent through the api - listRelatives doesn't handle instances correctly,
         # and string processing seems unreliable...
-        def getDagParent(dag):
-            if dag.length() <= 1:
-                return None
-            # Need a copy as we'll be modifying it...
-            dag = _api.MDagPath(dag)
-            dag.pop()
-            return dag
-        res = general._getParent(getDagParent, self.__apimdagpath__(), generations)
-        if res:
-            return general.PyNode( res )
 
+        res = general._getParent(self._getDagParent, self.__apimdagpath__(), generations)
+        if res:
+            if generations is None:
+                return [general.PyNode(x) for x in res]
+            else:
+                return general.PyNode( res )
+        
     def getAllParents(self):
         """
         Return a list of all parents above this.
 
         Starts from the parent immediately above, going up.
 
-        :rtype: `Attribute` list
+        :rtype: `DagNode` list
         """
-
-        x = self.getParent()
-        res = []
-        while x:
-            res.append(x)
-            x = x.getParent()
-        return res
-
-    #getAllParents, getParent = general._makeAllParentFunc_and_ParentFuncWithGenerationArgument(firstParent2)
+        return self.getParent(generations=None, arrays=arrays)
 
     def getChildren(self, **kwargs ):
         """
@@ -1702,7 +1737,7 @@ class RenderLayer(DependNode):
         cmds.editRenderLayerMembers( self, members, remove=True )
 
     def listAdjustments(self):
-        return map( general.PyNode, _util.listForNone( cmds.editRenderLayerAdjustment( layer=self, q=1) ) )
+        return map( general.PyNode, _util.listForNone( cmds.editRenderLayerAdjustment( self, layer=1, q=1) ) )
 
     def addAdjustments(self, members, noRecurse):
         return cmds.editRenderLayerMembers( self, members, noRecurse=noRecurse )
@@ -2212,6 +2247,17 @@ class Mesh(SurfaceShape):
                             'vtxFace'   : general.MeshVertexFace,
                             'faceVerts' : general.MeshVertexFace}
 
+    # Unfortunately, objects that don't yet have any mesh data - ie, if you do
+    # createNode('mesh') - can't be fed into MFnMesh (even though it is a mesh
+    # node).  This means that all the methods wrapped from MFnMesh won't be
+    # usable in this case.  While it might make sense for some methods - ie,
+    # editing methods like collapseEdges - to fail in this situation, some
+    # basic methods like numVertices should still be usable.  Therefore,
+    # we override some of these with the mel versions (which still work...)
+    numVertices = _factories.makeCreateFlagMethod( cmds.polyEvaluate, 'vertex', 'numVertices' )
+    numEdges = _factories.makeCreateFlagMethod( cmds.polyEvaluate, 'edge', 'numEdges' )
+    numFaces = _factories.makeCreateFlagMethod( cmds.polyEvaluate, 'face', 'numFaces' )
+
     numTriangles = _factories.makeCreateFlagMethod( cmds.polyEvaluate, 'triangles', 'numTriangles' )
     numSelectedTriangles = _factories.makeCreateFlagMethod( cmds.polyEvaluate, 'triangleComponent', 'numSelectedTriangles' )
     numSelectedFaces = _factories.makeCreateFlagMethod( cmds.polyEvaluate, 'faceComponent', 'numSelectedFaces' )
@@ -2241,10 +2287,49 @@ class Mesh(SurfaceShape):
 
     @_factories.addApiDocs( _api.MFnMesh, 'numColors' )
     def numColors(self, colorSet=None):
+        mfn = self.__apimfn__()
+        # If we have an empty mesh, we will get an MFnDagNode...
+        if not isinstance(mfn, _api.MFnMesh):
+            return 0
         args = []
         if colorSet:
             args.append(colorSet)
-        return self.__apimfn__().numColors(*args)
+        return mfn.numColors(*args)
+
+# Unfortunately, objects that don't yet have any mesh data - ie, if you do
+# createNode('mesh') - can't be fed into MFnMesh (even though it is a mesh
+# node).  This means that all the methods wrapped from MFnMesh won't be
+# usable in this case.  While it might make sense for some methods - ie,
+# editing methods like collapseEdges - to fail in this situation, some
+# basic methods like numVertices should still be usable.  Therefore,
+# we override some of these with the mel versions (which still work...)
+
+def _makeApiMethodWrapForEmptyMesh(apiMethodName, baseMethodName=None,
+                                   resultName=None, defaultVal=0):
+    if baseMethodName is None:
+        baseMethodName = '_' + apiMethodName
+    if resultName is None:
+        resultName = apiMethodName
+
+    baseMethod = getattr(Mesh, baseMethodName)
+
+    @_factories.addApiDocs( _api.MFnMesh, apiMethodName )        
+    def methodWrapForEmptyMesh(self, *args, **kwargs):
+        # If we have an empty mesh, we will get an MFnDagNode...
+        mfn = self.__apimfn__()
+        if not isinstance(mfn, _api.MFnMesh):
+            return defaultVal
+        return baseMethod(self, *args, **kwargs)
+    methodWrapForEmptyMesh.__name__ = resultName
+    return methodWrapForEmptyMesh
+
+for _apiMethodName in '''numColorSets
+                    numFaceVertices
+                    numNormals
+                    numUVSets
+                    numUVs'''.split():
+    _wrappedFunc = _makeApiMethodWrapForEmptyMesh(_apiMethodName)
+    setattr(Mesh, _wrappedFunc.__name__, _wrappedFunc)
 
 class Subdiv(SurfaceShape):
     __metaclass__ = _factories.MetaMayaNodeWrapper
@@ -2881,6 +2966,14 @@ class ObjectSet(Entity):
     def union(self, other):
         self.addMembers(other)
 
+    def isRenderable(self):
+        '''Mimics cmds.sets(self, q=True, renderable=True).
+
+        Alternatively you can use isinstance(someset, pm.nt.ShadingEngine)
+        since shadingEngine is the only renderable set in maya now
+        '''
+        return bool(cmds.sets(self, q=True, r=True))
+
 class ShadingEngine(ObjectSet):
     @classmethod
     def _getApiObjs(cls, item, tryCast=True):
@@ -2998,13 +3091,16 @@ def _createPyNodes():
 
     dynModule = _util.LazyLoadModule(__name__, globals())
 
-    # reset cache
-    _factories.pyNodeTypesHierarchy.clear()
-    _factories.pyNodeNamesToPyNodes.clear()
-
     for mayaType, parents, children in _factories.nodeHierarchy:
 
-        if mayaType == 'dependNode': continue
+        if mayaType == 'dependNode':
+        # This seems like the more 'correct' way of doing it - only node types
+        # that are currently available have PyNodes created for them - but
+        # changing it so some PyNodes are no longer available until their
+        # plugin is loaded may create backwards incompatibility issues... 
+#        if (mayaType == 'dependNode'
+#                or mayaType not in _factories.mayaTypesToApiTypes):
+            continue
 
         parentMayaType = parents[0]
         #print "superNodeType: ", superNodeType, type(superNodeType)

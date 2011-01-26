@@ -5,6 +5,7 @@ Version 1.0.3
 ----------------------------------
 Changes
 ----------------------------------
+
 - ``setParent`` now returns PyUI objects when queried
 - ``setParent`` now returns None object instead of 'NONE' string
 - ``menu(q=1, itemArray=1)`` now returns [] instead of None
@@ -12,10 +13,34 @@ Changes
   'with' object if there are nested with statements; if not in a nested with
   statement, resets parent back to UI element's parent (or more precisely, the
   first element that is not a rowGroupLayout element)
+- ``with OptionMenuGrp()`` will set parent menu properly
 - 'Unit' support for Quaternion objects is now removed (as it doesn't make
   any sense)
-- ``with OptionMenuGrp()`` will set parent menu properly
+- can now set enum attributes using their string values
+- can now pass in PyNode class objects to functions / methods that expect a
+  mel node class name - ie:
 
+     listRelatives(allDescendents=True, type=nt.Joint)
+
+  is equivalent to:
+
+     listRelatives(allDescendents=True, type='joint')
+
+----------------------------------
+Non-Backward Compatible Changes
+----------------------------------
+
+- PyNode('*') - or any other non-unique name - now returns an error
+  use ls('*') if you wish to return a list of possible nodes
+- By default, the root pymel logger outputs to sys.__stdout__ now, instead of
+  sys.stderr; can be overriden to another stream in sys (ie, stdout, stderr,
+  __stderr__, __stdout__) by setting the MAYA_SHELL_LOGGER_STREAM environment
+  variable
+- tangentConstraint, poleVectorConstraint, and pointOnPolyConstraint commands
+  now return a PyNode when creating, instead of a list with one item
+- skinCluster command / node's methods / flags for querying deformerTools, 
+  influence, weightedInfluence now return PyNodes, not strings
+- Attribute.elements now returns an empty list instead of None
 
 ==================================
 Version 1.0.2

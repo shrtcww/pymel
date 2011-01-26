@@ -488,6 +488,10 @@ def proxyClass( cls, classname, dataAttrName = None, dataFuncName=None,
     return Proxy
 
 
+# Note - for backwards compatibility reasons, PyNodes still inherit from
+# ProxyUnicode, even though we are now discouraging their use 'like strings',
+# and ProxyUnicode itself has now had so many methods removed from it that
+# it's no longer really a good proxy for unicode.
 
 # NOTE: This may move back to core.general, depending on whether the __getitem__ bug was fixed in 2009, since we'll have to do a version switch there
 #ProxyUnicode = proxyClass( unicode, 'ProxyUnicode', dataFuncName='name', remove=['__getitem__', 'translate']) # 2009 Beta 2.1 has issues with passing classes with __getitem__
@@ -531,8 +535,8 @@ class universalmethod(object):
             cls = type(instance)
         if instance is None:
             instance = cls
-        def newfunc(*args):
-            return self.f(instance, *args)
+        def newfunc(*args, **kwargs):
+            return self.f(instance, *args, **kwargs)
         return newfunc
 
 def LazyLoadModule(name, contents):
@@ -692,12 +696,13 @@ def LazyLoadModule(name, contents):
             """
             Used to update the contents of the LazyLoadModule with the contents of another dict.
             """
-            self.__dict__.update(self._lazyGlobals)
-            # For debugging, print out a list of things in the LazyLoadModule that AREN'T in
-            # otherDict...
+            # For debugging, print out a list of things in the _lazyGlobals that
+            # AREN'T in __dict__
+#            print "_lazyModule_update:"
 #            print "only in dynamic module:", [x for x in
-#                                              (set(self.__class__.__dict__) | set(self.__dict__))- set(otherDict)
+#                                              (set(self.__class__.__dict__) | set(self.__dict__))- set(self._lazyGlobals)
 #                                              if not x.startswith('__')]
+            self.__dict__.update(self._lazyGlobals)
 
 
     return _LazyLoadModule(name, contents)

@@ -1,4 +1,6 @@
-
+"""
+Convert python callables into MEL procedures
+"""
 import inspect, re, types
 from pymel.util.arrays import VectorN, MatrixN
 from pymel.util.arguments import isMapping, isIterable
@@ -10,6 +12,7 @@ import maya.OpenMayaMPx as mpx
 import maya.OpenMaya as om
 
 MAX_VAR_ARGS=10
+MAX_FLAG_ARGS=6
 
 _functionStore = {}
 
@@ -598,7 +601,7 @@ def py2melCmd(pyObj, commandName=None, register=True, includeFlags=[], excludeFl
                 args, varargs, keywords, defaults = inspect.getargspec( method )
                 # a variable number of args can be passed to the flag. set the maximum number
                 if varargs:
-                    maxArgs = MAX_VAR_ARGS
+                    maxArgs = MAX_FLAG_ARGS
                 else:
                     maxArgs = len(args)-1 # subtract 'self' arg
             elif attrType is property:
