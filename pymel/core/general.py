@@ -138,13 +138,12 @@ Modifications:
       otherwise, it does nothing
 
     """
-
     try:
         cmds.select(*args, **kwargs)
     except TypeError, msg:
         if args == ([],):
             for modeFlag in ('add', 'af', 'addFirst',
-                             'r', 'replace', 'd', 'deselect',
+                             'd', 'deselect',
                              'tgl', 'toggle'):
                 if kwargs.get(modeFlag, False):
                     return
@@ -1940,15 +1939,18 @@ class PyNode(_util.ProxyUnicode):
         """
         return self.lstrip('|').rstrip('|').split('|')[-1].split(':')[:-1]
 
-    def namespace(self):
+    def namespace(self, root=True):
         """Returns the namespace of the object with trailing colon included.  See `DependNode.parentNamespace` for
         a variant which does not include the trailing colon.
 
+        By default, if the object is in the root namespace, an empty string is
+        returned; if root is True, ':' is returned in this case.
+        
         :rtype: `unicode`
 
         """
         ns = self.parentNamespace()
-        if ns:
+        if ns or root:
             ns += ':'
         return ns
 
