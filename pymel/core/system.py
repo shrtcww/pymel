@@ -1272,6 +1272,39 @@ class FileReference(object):
             kwargs['editCommand'] = editCommand
         cmds.file(cleanReference=self.refNode, **kwargs)
 
+    def listProxies(self):
+        """ Returns a dictionary of proxies for this reference.
+
+        The key is the proxy tag and the value is the reference node to the proxy.
+        """
+
+        proxy_mgrs = self._refNode.proxyMsg.listConnections(type='proxyManager')
+        proxies = {}
+        for proxy_mgr in proxy_mgrs:
+            for ref in proxy_mgr.proxyList.listConnections(type='reference'):#ref = proxy_mgr.proxyList.listConnections(type='reference')[0]
+                proxies[ref.proxyTag.get()] = ref
+        return proxies
+
+    def switchToProxy(self,proxy):
+        """ Reload proxy as `proxy`
+        @param proxy: pm.nt.Reference of the proxy"""
+
+        return pm.mel.proxySwitch(proxy)
+
+    def addProxy(self,path,name):
+        """ Add a proxy to `path` with proxy `name`
+        @param path: The path of the file to act as the proxy
+        @param name: The string proxy tag name"""
+
+        return pm.mel.proxyAdd(self._refNode,path,name)
+
+    def removeProxy(self,proxy):
+        """ Remove proxy as `proxy`
+
+        Proxy must not be the current proxy. Also requires manual input (confirm dialog)
+        @param proxy: pm.nt.Reference of the proxy"""
+        return pm.mel.proxyRemove(proxy)
+
 
 def referenceQuery(*args, **kwargs):
     """When queried for 'es/editStrings', returned a list of ReferenceEdit objects"""
