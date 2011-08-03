@@ -984,12 +984,45 @@ class PathButtonGrp( dynModule.TextFieldButtonGrp ):
     def __new__(cls, name=None, create=False, *args, **kwargs):
 
         if create:
+            import windows
+
             kwargs.pop('bl', None)
             kwargs['buttonLabel'] = 'Browse'
             kwargs.pop('bc', None)
             kwargs.pop('buttonCommand', None)
 
+            recent_menu=kwargs.pop('recentMenuOptionVar',False)
+            
             name = cmds.textFieldButtonGrp( name, *args, **kwargs)
+
+            if recent_menu:
+                def buildRecentMenu(popup,field,optionvar):
+                    import language
+
+                    popup.deleteAllItems()
+                    recent_list = language.optionVar.get(optionvar,None)
+                    if recent_list:
+                        if not isinstance(recent_list,tuple):
+                            recent_list = (recent_list,)
+                        for item in recent_list:
+                            windows.menuItem(label=item,
+                                             command=windows.Callback(cmds.textFieldGrp,
+                                                                      field,
+                                                                      edit=True,
+                                                                      text=item,
+                                                                      forceChangeCommand=True,
+                                                                      ),
+                                             parent=popup)
+                with windows.popupMenu() as pop:
+                    windows.popupMenu(pop,
+                                      edit=True,
+                                      postMenuCommand=windows.Callback(
+                                          buildRecentMenu,
+                                          pop,
+                                          name,
+                                          recent_menu,
+                                          ),
+                         )
 
             def setPathCB(name):
                 import windows
@@ -1010,6 +1043,22 @@ class PathButtonGrp( dynModule.TextFieldButtonGrp ):
     def getPath(self):
         import system
         return system.Path( self.getText() )
+
+    def updateRecentMenu(self,item,optionvar,length=10):
+        import language
+
+        recent = language.optionVar.get(optionvar,list())
+        if recent:
+            if isinstance(recent,unicode):
+                recent = [recent,]
+            else:
+                recent = list(recent)
+                
+        u_item = unicode(item)
+        if u_item in recent:
+            recent.remove(u_item)
+        recent.insert(0,u_item)
+        language.optionVar[optionvar] = recent[:length]
 
 class FolderButtonGrp( PathButtonGrp ):
     def __new__(cls, name=None, create=False, *args, **kwargs):
