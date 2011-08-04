@@ -1289,21 +1289,21 @@ class FileReference(object):
         """ Reload proxy as `proxy`
         @param proxy: pm.nt.Reference of the proxy"""
 
-        return pm.mel.proxySwitch(proxy)
+        return _mel.eval('proxySwitch("%s");'%proxy.name())
 
     def addProxy(self,path,name):
         """ Add a proxy to `path` with proxy `name`
         @param path: The path of the file to act as the proxy
         @param name: The string proxy tag name"""
 
-        return pm.mel.proxyAdd(self._refNode,path,name)
+        return _mel.eval('proxyAdd("%s","%s","%s");'%(self._refNode.name(),path,name))
 
     def removeProxy(self,proxy):
         """ Remove proxy as `proxy`
 
         Proxy must not be the current proxy. Also requires manual input (confirm dialog)
         @param proxy: pm.nt.Reference of the proxy"""
-        return pm.mel.proxyRemove(proxy)
+        return _mel.eval('proxyRemove("%s");'%proxy.name())
 
 
 def referenceQuery(*args, **kwargs):
