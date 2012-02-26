@@ -184,7 +184,7 @@ class Namespace(unicode):
 
     def splitAll(self):
         return self.strip(":").split(":")
-    
+
     def shortName(self):
         return self.splitAll()[-1]
 
@@ -203,7 +203,7 @@ class Namespace(unicode):
 
     def listNamespaces(self, recursive=False, internal=False):
         '''List the namespaces contained within this namespace.
-        
+
         :parameters:
         recursive : `bool`
             Set to True to enable recursive search of sub (and sub-sub, etc)
@@ -236,7 +236,7 @@ class Namespace(unicode):
 
     def listNodes(self, recursive=False, internal=False):
         '''List the nodes contained within this namespace.
-        
+
         :parameters:
         recursive : `bool`
             Set to True to enable recursive search of sub (and sub-sub, etc)
@@ -255,7 +255,7 @@ class Namespace(unicode):
                 nodes = namespaceInfo(listOnlyDependencyNodes=True, dagPath=True)
                 if recursive:
                     namespaces = self.listNamespaces(recursive=False, internal=internal)
-    
+
                     for ns in namespaces:
                         nodes.extend(ns.listNodes(recursive=recursive,
                                                       internal=internal))
@@ -266,7 +266,7 @@ class Namespace(unicode):
             curNS.setCurrent()
 
         return nodes
-    
+
     def setCurrent(self):
         cmds.namespace(set=self)
 
@@ -334,12 +334,12 @@ Modifications:
         kwargs['dagPath'] = True
 
     res = cmds.namespaceInfo(*args, **kwargs)
-    
+
     if any( kwargs.get(x, False) for x in ('ls', 'listNamespace',
                                            'lod', 'listOnlyDependencyNodes',
                                            'lon', 'listOnlyNamespaces') ):
         res = _util.listForNone(res)
-        
+
     if pyNodeWrap:
         import general
         nodes = []
@@ -351,7 +351,7 @@ Modifications:
                 # get returned... so just ignore any nodes we can't create
                 pass
         res = nodes
-    
+
     return res
 
 #-----------------------------------------------
@@ -599,7 +599,7 @@ class FileInfo( object ):
 
     def __setitem__(self, item, value):
         cmds.fileInfo( item, value )
-        
+
     def __delitem__(self, item):
         cmds.fileInfo( remove=item )
 
@@ -664,8 +664,8 @@ fileInfo = FileInfo()
 class Path(pathClass):
     """A basic Maya file class. it gets most of its power from the path class written by Jason Orendorff.
     see path.py for more documentation."""
-    def __repr__(self):
-        return "%s('%s')" % (self.__class__.__name__, self)
+    #def __repr__(self):
+    #    return "%s('%s')" % (self.__class__.__name__, self)
 
     getTypeName = _factories.makeQueryFlagMethod( cmds.file, 'type' )
     setSubType = _factories.makeQueryFlagMethod( cmds.file, 'subType', 'setSubType')
@@ -719,7 +719,7 @@ def iterReferences( parentReference=None, recursive=False, namespaces=False,
 
     """
     import general
-    
+
     validRecurseTypes = ('breadth', 'width')
     if recurseType not in validRecurseTypes:
         ValueError('%s was not an acceptable value for recurseType - must be one of %s' % (recurseType, ', '.join(validRecurseTypes)))
@@ -728,7 +728,7 @@ def iterReferences( parentReference=None, recursive=False, namespaces=False,
         refs = cmds.file(q=1, reference=1)
     else:
         refs = cmds.file(parentReference, q=1, reference=1)
-        
+
     #print "reference", parentReference
     while refs:
         #if recursive and recurseType == 'breadth':
@@ -1274,6 +1274,39 @@ class FileReference(object):
             kwargs['editCommand'] = editCommand
         cmds.file(cleanReference=self.refNode, **kwargs)
 
+    def listProxies(self):
+        """ Returns a dictionary of proxies for this reference.
+
+        The key is the proxy tag and the value is the reference node to the proxy.
+        """
+
+        proxy_mgrs = self._refNode.proxyMsg.listConnections(type='proxyManager')
+        proxies = {}
+        for proxy_mgr in proxy_mgrs:
+            for ref in proxy_mgr.proxyList.listConnections(type='reference'):#ref = proxy_mgr.proxyList.listConnections(type='reference')[0]
+                proxies[ref.proxyTag.get()] = ref
+        return proxies
+
+    def switchToProxy(self,proxy):
+        """ Reload proxy as `proxy`
+        @param proxy: pm.nt.Reference of the proxy"""
+
+        return _mel.eval('proxySwitch("%s");'%proxy.name())
+
+    def addProxy(self,path,name):
+        """ Add a proxy to `path` with proxy `name`
+        @param path: The path of the file to act as the proxy
+        @param name: The string proxy tag name"""
+
+        return _mel.eval('proxyAdd("%s","%s","%s");'%(self._refNode.name(),path,name))
+
+    def removeProxy(self,proxy):
+        """ Remove proxy as `proxy`
+
+        Proxy must not be the current proxy. Also requires manual input (confirm dialog)
+        @param proxy: pm.nt.Reference of the proxy"""
+        return _mel.eval('proxyRemove("%s");'%proxy.name())
+
 
 def referenceQuery(*args, **kwargs):
     """When queried for 'es/editStrings', returned a list of ReferenceEdit objects"""
@@ -1289,7 +1322,7 @@ def referenceQuery(*args, **kwargs):
                 target = PyNode(args[0])
             except (MayaNodeError, MayaAttributeError):
                 pass
-            
+
             if target:
                 if target.type()=='reference':
                     fr = FileReference(refnode=target)
@@ -1299,7 +1332,7 @@ def referenceQuery(*args, **kwargs):
                 target = Path(args[0])
                 if target.isfile():
                     fr = FileReference(target)
-                
+
             if not isinstance(fr, FileReference):
                 # Last ditch - just try casting to a FileReference
                 fr = FileReference(args[0])
