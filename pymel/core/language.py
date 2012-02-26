@@ -109,12 +109,15 @@ def pythonToMelCmd(command, *args, **kwargs):
                 flagInfo = flags[key]
             elif key in shortFlags:
                 flagInfo = flags[shortFlags[key]]
-            if (flagInfo and issubclass(flagInfo.get('args'), bool)
+            if (flagInfo and flagInfo.get('args') == bool
                          and flagInfo.get('numArgs') == 0):
                 # we have a boolean argument that takes no args!
                 # doing something like '-q 1' will raise an error, just
                 # do '-q' 
                 strFlags.append('-%s' % key)
+            elif (isinstance(val, (tuple, list))
+                    and len(val) == flagInfo.get('numArgs')):
+                strFlags.append('-%s %s' % ( key, ' '.join(pythonToMel(x) for x in val )))
             else:
                 strFlags.append('-%s %s' % ( key, pythonToMel(val) ))
         cmdStr = '%s %s %s' % ( command, ' '.join( strFlags ), ' '.join( strArgs ) )

@@ -1,7 +1,6 @@
 import sys
-#assert 'pymel' not in sys.modules, "in order to generate docs properly pymel cannot
 import os, glob, shutil
-
+assert 'pymel' not in sys.modules or 'PYMEL_INCLUDE_EXAMPLES' in os.environ, "to generate docs PYMEL_INCLUDE_EXAMPLES env var must be set before pymel is imported"
 
 # remember, the processed command examples are not version specific. you must
 # run cmdcache.fixCodeExamples() to bring processed examples in from the raw
@@ -28,20 +27,16 @@ else:
 
 version = pymel.__version__.rsplit('.',1)[0]
 SOURCE = 'source'
-BUILD = 'build/' + version
+BUILD = os.path.join('build', version)
+
+from pymel.internal.cmdcache import fixCodeExamples
 
 def generate():
     from sphinx.ext.autosummary.generate import main
 
-    os.chdir( os.path.join(docsdir) )
-    if os.path.exists(BUILD):
-        print "removing", os.path.join(docsdir,BUILD)
-        shutil.rmtree(BUILD)
-
+    clean_build()
+    clean_generated()
     os.chdir( os.path.join(docsdir,SOURCE) )
-    if os.path.exists('generated'):
-        print "removing", os.path.join(docsdir,SOURCE,'generated')
-        shutil.rmtree('generated')
 
     main( [''] + '--templates ../templates index.rst'.split() )
     main( [''] + '--templates ../templates'.split() + glob.glob('generated/pymel.*.rst') )
@@ -57,6 +52,16 @@ def clean_generated():
     if os.path.exists(gendir):
         print "removing", gendir
         shutil.rmtree(gendir)
+
+def find_dot():
+    if os.name == 'posix':
+        dots = ['/usr/local/bin/dot', '/usr/bin/dot']
+    else:
+        dots = ['C:\\graphviz\\bin\\dot.exe']
+    for d in dots:
+        if os.path.exists(d):
+            return d
+    raise TypeError( 'cannot find graphiz dot executable in the following locations: %s' % ', '.join(dots) )
 
 def build(clean=True,  **kwargs):
     from sphinx import main
@@ -74,17 +79,12 @@ def build(clean=True,  **kwargs):
     
     # set some defaults
     if 'graphviz_dot' not in kwargs:
-        if os.name == 'posix':
-            dot = '/usr/local/bin/dot'
-        else:
-            dot = 'C:\\Program Files (x86)\\Graphviz2.26.3\\bin\\dot.exe'
-        if not os.path.exists(dot):
-            raise TypeError( 'cannot find graphiz dot executable' )
-        kwargs['graphviz_dot'] = dot   
+        kwargs['graphviz_dot'] = find_dot()
     
     for key, value in kwargs.iteritems():
         opts.append('-D')
         opts.append( key.strip() + '=' + value.strip() )
+    opts.append('-P')
     opts.append(SOURCE)
     opts.append(BUILD)
     main(opts)

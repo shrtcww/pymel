@@ -11,10 +11,12 @@ import pymel.internal as _internal
 _startup.mayaInit()
 
 import pymel.internal.factories as _factories
+import pymel.internal.cmdcache as _cmdcache
 import pymel.internal.pmcmds as _pmcmds
 _pmcmds.addAllWrappedCmds()
 
 import pymel.api as _api
+import pymel.api.plugins as _plugins
 from general import *
 from context import *
 from system import *
@@ -49,8 +51,67 @@ _pluginData = {}
 
 _module = sys.modules[__name__]
 
-def _pluginLoaded( *args ):
+def _addPluginCommand(pluginName, funcName):
+    global _pluginData
+    
+    if funcName not in _pluginData[pluginName].setdefault('commands', []):
+        _pluginData[pluginName]['commands'].append(funcName)
+    _logger.debug("Adding command: %s" % funcName)
+    #_logger.debug("adding new command:", funcName)
+    _factories.cmdlist[funcName] = _cmdcache.getCmdInfoBasic( funcName )
+    _factories.cmdlist[funcName]['plugin'] = pluginName
+    _pmcmds.addWrappedCmd(funcName)
+    func = _factories.functionFactory( funcName )
+    try:
+        if func:
+            coreModule = 'pymel.core.%s' % _cmdcache.getModule(funcName,
+                                                               _factories.moduleCmds)
+            if coreModule in sys.modules:
+                setattr( sys.modules[coreModule], funcName, func )
+            # Note that we add the function to both a core module (ie,
+            # pymel.core.other), the pymel.core itself, and pymel.all; this
+            # way, we mirror the behavior of 'normal' functions 
+            setattr( _module, funcName, func )
+            if 'pymel.all' in sys.modules:
+                setattr( sys.modules['pymel.all'], funcName, func )
+        else:
+            _logger.warning( "failed to create function" )
+    except Exception, msg:
+        _logger.warning("exception: %s" % str(msg) )
+        
+def _addPluginNode(pluginName, mayaType):
+    global _pluginData
+    
+    if mayaType not in _pluginData[pluginName].setdefault('dependNodes', []):
+        _pluginData[pluginName]['dependNodes'].append(mayaType)    
+    _logger.debug("Adding node: %s" % mayaType)
+    extraAttrs = _plugins.pyNodeMethods.get(pluginName, {}).get(mayaType, {})
+    _factories.addCustomPyNode(nodetypes, mayaType, extraAttrs=extraAttrs)
+    
 
+def _removePluginCommand(pluginName, command):
+    global _pluginData
+
+    commands = _pluginData.get(pluginName, {}).get('commands', [])
+    if command in commands:
+        commands.remove(command)
+    try:
+        _pmcmds.removeWrappedCmd(command)
+        _module.__dict__.pop(command, None)
+    except KeyError:
+        _logger.warn( "Failed to remove %s from module %s" % (command, _module.__name__) )
+
+def _removePluginNode(pluginName, node):
+    global _pluginData
+
+    nodes = _pluginData.get(pluginName, {}).get('dependNodes', [])
+    if node in nodes:
+        nodes.remove(node)
+    _factories.removePyNode( nodetypes, node )
+
+def _pluginLoaded( *args ):
+    global _pluginData
+    
     if len(args) > 1:
         # 2009 API callback, the args are ( [ pathToPlugin, pluginName ], clientData )
         pluginName = args[0][1]
@@ -63,41 +124,23 @@ def _pluginLoaded( *args ):
     _logger.debug("Plugin loaded: %s", pluginName)
     _pluginData[pluginName] = {}
 
-    try:
-        commands = _pmcmds.pluginInfo(pluginName, query=1, command=1)
-    except:
-        _logger.error("Failed to get command list from %s", pluginName)
-        commands = None
-
-
     # Commands
+    commands = _plugins.pluginCommands(pluginName)
+    
     if commands:
-        _pluginData[pluginName]['commands'] = commands
+        # clear out the command list first
+        _pluginData[pluginName]['commands'] = []
         for funcName in commands:
-            _logger.debug("Adding command: %s" % funcName)
-            #__logger.debug("adding new command:", funcName)
-            _factories.cmdlist[funcName] = _factories.cmdcache.getCmdInfoBasic( funcName )
-            _pmcmds.addWrappedCmd(funcName)
-            func = _factories.functionFactory( funcName )
-            try:
-                if func:
-                    setattr( _module, funcName, func )
-                    if 'pymel.all' in sys.modules:
-                        setattr( sys.modules['pymel.all'], funcName, func )
-                else:
-                    _logger.warning( "failed to create function" )
-            except Exception, msg:
-                _logger.warning("exception: %s" % str(msg) )
+            _addPluginCommand(pluginName, funcName) 
 
     # Nodes
     try:
         mayaTypes = cmds.pluginInfo(pluginName, query=1, dependNode=1)
-    except:
+    except Exception:
         _logger.error("Failed to get depend nodes list from %s", pluginName)
         mayaTypes = None
     #apiEnums = cmds.pluginInfo(pluginName, query=1, dependNodeId=1)
     if mayaTypes :
-
         def addPluginPyNodes(*args):
             try:
                 id = _pluginData[pluginName]['callbackId']
@@ -108,7 +151,7 @@ def _pluginLoaded( *args ):
             except KeyError:
                 _logger.warning("could not find callback id!")
 
-            _pluginData[pluginName]['dependNodes'] = mayaTypes
+            _pluginData[pluginName]['dependNodes'] = []
             allTypes = set(cmds.ls(nodeTypes=1))
             for mayaType in mayaTypes:
                 # make sure it's a 'valid' type - some plugins list node types
@@ -121,28 +164,8 @@ def _pluginLoaded( *args ):
                 # but not after the plugin is loaded / callback finishes...?
                 if mayaType not in allTypes:
                     continue
-                
+                _addPluginNode(pluginName, mayaType)
                 _logger.debug("Adding node: %s" % mayaType)
-                try:
-                    inheritance = _factories.getInheritance( mayaType )
-                except Exception:
-                    import traceback
-                    _logger.debug(traceback.format_exc())
-                    inheritance = None
-
-                if inheritance == 'manip':
-                    continue
-                elif not inheritance or not util.isIterable(inheritance):
-                    _logger.warn( "could not get inheritance for mayaType %s" % mayaType)
-                else:
-                    #__logger.debug(mayaType, inheritance)
-                    #__logger.debug("adding new node:", mayaType, apiEnum, inheritence)
-                    # some nodes in the hierarchy for this node might not exist, so we cycle through all
-                    parent = 'dependNode'
-
-                    for node in inheritance:
-                        nodeName = _factories.addPyNode( nodetypes, node, parent )
-                        parent = node
 
         # Detect if we are currently opening/importing a file and load as a callback versus execute now
         if _api.MFileIO.isReadingFile() or  _api.MFileIO.isOpeningFile(): #or \
@@ -153,25 +176,24 @@ def _pluginLoaded( *args ):
 ##                _logger.debug("pymel: Installing temporary plugin-loaded nodes callback - postsceneread")
 ##                id = _api.MEventMessage.addEventCallback( 'PostSceneRead', addPluginPyNodes )
             if _api.MFileIO.isImportingFile():
-                _logger.debug("pymel: Installing temporary plugin-loaded nodes callback - sceneimported")
+                _logger.debug("Installing temporary plugin-loaded nodes callback - sceneimported")
                 id = _api.MEventMessage.addEventCallback( 'SceneImported', addPluginPyNodes )
             else:
-                _logger.debug("pymel: Installing temporary plugin-loaded nodes callback - sceneopened")
+                _logger.debug("Installing temporary plugin-loaded nodes callback - sceneopened")
                 id = _api.MEventMessage.addEventCallback( 'SceneOpened', addPluginPyNodes )
             _pluginData[pluginName]['callbackId'] = id
             # scriptJob not respected in batch mode, had to use _api
             #cmds.scriptJob( event=('SceneOpened',doSomethingElse), runOnce=1 )
         else:
-            _logger.debug("pymel: Running plugin-loaded nodes callback")
+            _logger.debug("Running plugin-loaded nodes callback")
             # add the callback id as None so that if we fail to get an id in addPluginPyNodes we know something is wrong
             _pluginData[pluginName]['callbackId'] = None
             addPluginPyNodes()
 
 
 
-
-
 def _pluginUnloaded(*args):
+    global _pluginData
 
     if len(args) > 1:
         # 2009 API callback, the args are
@@ -193,18 +215,14 @@ def _pluginUnloaded(*args):
         if commands:
             _logger.debug("Removing commands: %s", ', '.join( commands ))
             for command in commands:
-                try:
-                    _pmcmds.removeWrappedCmd(command)
-                    _module.__dict__.pop(command)
-                except KeyError:
-                    _logger.warn( "Failed to remove %s from module %s" % (command, _module.__name__) )
+                _removePluginCommand(pluginName, command)
 
         # Nodes
         nodes = data.pop('dependNodes', [])
         if nodes:
             _logger.debug("Removing nodes: %s" % ', '.join( nodes ))
             for node in nodes:
-                _factories.removePyNode( nodetypes, node )
+                _removePluginNode(pluginName, node)
 
 
 global _pluginLoadedCB

@@ -138,8 +138,15 @@ class PyUI(unicode):
                 except RuntimeError:
                     # we cannot query the type of rowGroupLayout children: check common types for these
                     uiType = None
-                    for control in 'checkBox floatField button floatSlider intSlider ' \
-                            'floatField textField intField optionMenu radioButton'.split():
+                    typesToCheck = 'checkBox floatField button floatSlider intSlider ' \
+                            'floatField textField intField optionMenu radioButton'.split()
+                    if _versions.current() >= _versions.v2012_SP2:
+                        # 2012 SP2 introducted a bug where doing:
+                        # win = cmds.window(menuBar=True)
+                        # cmds.objectTypeUI(win)
+                        # would error...
+                        typesToCheck.append('window')
+                    for control in typesToCheck:
                         if getattr(cmds, control)( name, ex=1, q=1):
                             uiType = control
                             break
@@ -280,13 +287,27 @@ class Layout(PyUI):
 
     getChildren = children
 
+    # TODO: add depth firt and breadth first options
     def walkChildren(self):
+        """
+        recursively yield all children of this layout
+        """
         for child in self.children():
             yield child
             if hasattr(child, 'walkChildren'):
                 for subChild in child.walkChildren():
                     yield subChild
 
+    def findChild(self, shortName, recurse=False):
+        if recurse:
+            for child in self.walkChildren():
+                if child.shortName() == shortName:
+                    return child
+        else:
+            for child in self.children():
+                if child.shortName() == shortName:
+                    return child
+        
     def addChild(self, uiType, name=None, **kwargs):
         if isinstance(uiType, basestring):
             uiType = getattr(dynModule, uiType)
@@ -543,6 +564,12 @@ class Menu(PyUI):
             parent = self
             while True:
                 parent = parent.parent()
+                # Maya 2012 Service Pack 2 (or SAP1, SP1) introduces a bug where
+                # '' is returned, instead of None; problem being that doing
+                # cmds.setParent(None, menu=True) is valid, but
+                # cmds.setParent('', menu=True) is not
+                if parent == '':
+                    parent = None
                 try:
                     cmds.setParent(parent, menu=True)
                 except RuntimeError:
@@ -720,24 +747,34 @@ class UITemplate(object):
         return cmds.uiTemplate( name, exists=True )
 
 class AELoader(type):
+    """
+    Metaclass used by `AETemplate` class to create wrapping and loading mechanisms when an AETemplate instance is created
+    """
     _loaded = []
     def __new__(cls, classname, bases, classdict):
         newcls = super(AELoader, cls).__new__(cls, classname, bases, classdict)
         try:
-             nodeType = newcls.nodeType()
+            nodeType = newcls.nodeType()
         except ValueError:
-             _logger.debug("could not determine node type for " + classname)
+            _logger.debug("could not determine node type for " + classname)
         else:
-             modname = classdict['__module__']
-             template = 'AE'+nodeType+'Template'
-             cls.makeAEProc(modname, classname, template)
-             if template not in cls._loaded:
-                 cls._loaded.append(template)
+            modname = classdict['__module__']
+            if modname == '__builtin__':
+                # since the module is __builtin__ our AE was probably included in the body of a scripted
+                # plugin, which is called by maya in a strange way ( execfile? ).
+                # give it a real home so we can load it later.
+                mod = sys.modules['__builtin__']
+                setattr( mod, classname, newcls )
+
+            template = 'AE'+nodeType+'Template'
+            cls.makeAEProc(modname, classname, template)
+            if template not in cls._loaded:
+                cls._loaded.append(template)
         return newcls
 
     @staticmethod
     def makeAEProc(modname, classname, procname):
-        _logger.info("making AE loader procedure: %s" % procname)
+        _logger.debug("making AE loader procedure: %s" % procname)
         contents = '''global proc %(procname)s( string $nodeName ){
         python("import %(__name__)s;%(__name__)s.AELoader.load('%(modname)s','%(classname)s','" + $nodeName + "')");}'''
         d = locals().copy()
@@ -981,9 +1018,13 @@ class VectorFieldGrp( dynModule.FloatFieldGrp ):
         cmds.floatFieldGrp( self, e=1, v1=vec[0], v2=vec[1], v3=vec[2] )
 
 class PathButtonGrp( dynModule.TextFieldButtonGrp ):
+    PROMPT_FUNCTION = 'promptForPath'
+    
     def __new__(cls, name=None, create=False, *args, **kwargs):
 
         if create:
+            import windows
+
             kwargs.pop('bl', None)
             kwargs['buttonLabel'] = 'Browse'
             kwargs.pop('bc', None)
@@ -991,9 +1032,9 @@ class PathButtonGrp( dynModule.TextFieldButtonGrp ):
 
             name = cmds.textFieldButtonGrp( name, *args, **kwargs)
 
+            promptFunction = getattr(windows, cls.PROMPT_FUNCTION)
             def setPathCB(name):
-                import windows
-                f = windows.promptForPath()
+                f = promptFunction()
                 if f:
                     cmds.textFieldButtonGrp( name, e=1, text=f, forceChangeCommand=True)
 
@@ -1001,7 +1042,7 @@ class PathButtonGrp( dynModule.TextFieldButtonGrp ):
             cb = windows.Callback( setPathCB, name )
             cmds.textFieldButtonGrp( name, e=1, buttonCommand=cb )
 
-        return dynModule.TextFieldButtonGrp.__new__( cls, name, create=False, *args, **kwargs )
+        return super(PathButtonGrp, cls).__new__( cls, name, create=False, *args, **kwargs )
 
     def setPath(self, path, **kwargs):
         kwargs['forceChangeCommand'] = kwargs.pop('fcc',kwargs.pop('forceChangeCommand',True))
@@ -1012,27 +1053,7 @@ class PathButtonGrp( dynModule.TextFieldButtonGrp ):
         return system.Path( self.getText() )
 
 class FolderButtonGrp( PathButtonGrp ):
-    def __new__(cls, name=None, create=False, *args, **kwargs):
-
-        if create:
-            kwargs.pop('bl', None)
-            kwargs['buttonLabel'] = 'Browse'
-            kwargs.pop('bc', None)
-            kwargs.pop('buttonCommand', None)
-
-            name = cmds.textFieldButtonGrp( name, *args, **kwargs)
-
-            def setPathCB(name):
-                import windows
-                f = windows.promptForFolder()
-                if f:
-                    cmds.textFieldButtonGrp( name, e=1, text=f, forceChangeCommand=True)
-
-            import windows
-            cb = windows.Callback( setPathCB, name )
-            cmds.textFieldButtonGrp( name, e=1, buttonCommand=cb )
-
-        return dynModule.TextFieldButtonGrp.__new__( cls, name, create=False, *args, **kwargs )
+    PROMPT_FUNCTION = 'promptForFolder'
 
 # most of the keys here are names that are only used in certain circumstances
 _uiTypesToCommands = {

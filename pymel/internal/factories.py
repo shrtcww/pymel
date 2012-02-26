@@ -1,21 +1,27 @@
 """
 Contains the wrapping mechanisms that allows pymel to integrate the api and maya.cmds into a unified interface
 """
+
+# Built-in imports
 import re, types, os, inspect, sys, textwrap
 import time
 from operator import itemgetter
 
-import pymel.util as util
-from pymel.util.conditions import Always, Condition
-import pymel.api as api
-import pymel.versions as versions
-from . import plogging
-from . import cmdcache
-from . import apicache
-from . import pmcmds
+# Maya imports
 import maya.cmds as cmds
 import maya.mel as mm
 
+# PyMEL imports
+import pymel.api as api
+import pymel.util as util
+from pymel.util.conditions import Always, Condition
+import pymel.versions as versions
+
+# Module imports
+from . import apicache
+from . import cmdcache
+from . import plogging
+from . import pmcmds
 
 _logger = plogging.getLogger(__name__)
 
@@ -56,6 +62,7 @@ moduleCmds = None
 # whenever we interact with it... 
 
 def loadApiCache():
+    _logger.debug("Loading api cache...")
     _start = time.time()
     
     global _apiCacheInst
@@ -84,6 +91,7 @@ def _setApiCacheGlobals():
             globals()[name] = val
     
 def loadCmdCache():
+    _logger.debug("Loading cmd cache...")
     _start = time.time()
     
     global _cmdCacheInst
@@ -410,48 +418,6 @@ def getUncachedCmds():
     return list( set( map( itemgetter(0), inspect.getmembers( cmds, callable ) ) ).difference( cmdlist.keys() ) )
 
 
-
-def getInheritance( mayaType ):
-    """Get parents as a list, starting from the node after dependNode, and
-    ending with the mayaType itself. To get the inheritance we use nodeType,
-    which requires a real node.  To do get these without poluting the scene we
-    use a dag/dg modifier, call the doIt method, get the lineage, then call
-    undoIt.
-    
-    The special value 'manip' is returned if the type was discovered to be a
-    manipulator
-    """
-
-    dagMod = api.MDagModifier()
-    dgMod = api.MDGModifier()
-
-    obj = apicache._makeDgModGhostObject(mayaType, dagMod, dgMod)
-
-    lineage = []
-    if obj is not None:
-        if (      obj.hasFn( api.MFn.kManipulator )      
-               or obj.hasFn( api.MFn.kManipContainer )
-               or obj.hasFn( api.MFn.kPluginManipContainer )
-               or obj.hasFn( api.MFn.kPluginManipulatorNode )
-               
-               or obj.hasFn( api.MFn.kManipulator2D )
-               or obj.hasFn( api.MFn.kManipulator3D )
-               or obj.hasFn( api.MFn.kManip2DContainer) ):
-            return 'manip'
- 
-        if obj.hasFn( api.MFn.kDagNode ):
-            mod = dagMod
-            mod.doIt()
-            name = api.MFnDagNode(obj).partialPathName()
-        else:
-            mod = dgMod
-            mod.doIt()
-            name = api.MFnDependencyNode(obj).name()
-    
-        if not obj.isNull() and not obj.hasFn( api.MFn.kManipulator3D ) and not obj.hasFn( api.MFn.kManipulator2D ):
-            lineage = cmds.nodeType( name, inherited=1)
-        mod.undoIt()
-    return lineage
 
 
 
@@ -2706,18 +2672,23 @@ class MetaMayaComponentWrapper(MetaMayaTypeWrapper):
                 apiEnumsToPyComponents[apienum] = newEntries
         return newcls
 
-def addPyNodeCallback( dynModule, mayaType, pyNodeTypeName, parentPyNodeTypeName):
+
+def addPyNodeCallback( dynModule, mayaType, pyNodeTypeName, parentPyNodeTypeName, extraAttrs=None):
     #_logger.debug( "%s(%s): creating" % (pyNodeTypeName,parentPyNodeTypeName) )
     try:
         ParentPyNode = getattr( dynModule, parentPyNodeTypeName )
     except AttributeError:
         #_logger.info("error creating class %s: parent class %r not in dynModule %s" % (pyNodeTypeName, parentPyNodeTypeName, dynModule.__name__))
         return
+   
+    classDict = {'__melnode__':mayaType}
+    if extraAttrs:
+        classDict.update(extraAttrs)
     if pyNodeTypeName in pyNodeNamesToPyNodes:
         PyNodeType = pyNodeNamesToPyNodes[pyNodeTypeName]
     else:
         try:
-            PyNodeType = MetaMayaNodeWrapper(pyNodeTypeName, (ParentPyNode,), {'__melnode__':mayaType})
+            PyNodeType = MetaMayaNodeWrapper(pyNodeTypeName, (ParentPyNode,), classDict)
         except TypeError, msg:
             # for the error: metaclass conflict: the metaclass of a derived class must be a (non-strict) subclass of the metaclasses of all its bases
             #_logger.debug("Could not create new PyNode: %s(%s): %s" % (pyNodeTypeName, ParentPyNode.__name__, msg ))
@@ -2728,7 +2699,44 @@ def addPyNodeCallback( dynModule, mayaType, pyNodeTypeName, parentPyNodeTypeName
     setattr( dynModule, pyNodeTypeName, PyNodeType )
     return PyNodeType
 
-def addPyNode( dynModule, mayaType, parentMayaType ):
+def addCustomPyNode(dynModule, mayaType, extraAttrs=None):
+    """
+    create a PyNode, also adding each member in the given maya node's inheritance if it does not exist.
+    
+    This function is used for creating PyNodes via plugins, where the nodes parent's might be abstract
+    types not yet created by pymel.  also, this function ensures that the newly created node types are
+    added to pymel.all, if that module has been imported.
+     
+    """
+    try:
+        inheritance = cmdcache.getInheritance( mayaType )
+    except cmdcache.ManipNodeTypeError:
+        _logger.warn( "could not create a PyNode for manipulator type %s" % mayaType)
+        return
+    except Exception:
+        import traceback
+        _logger.debug(traceback.format_exc())
+        inheritance = None
+        
+    if not inheritance or not util.isIterable(inheritance):
+        _logger.warn( "could not get inheritance for mayaType %s" % mayaType)
+    else:
+        #__logger.debug(mayaType, inheritance)
+        #__logger.debug("adding new node:", mayaType, apiEnum, inheritence)
+        # some nodes in the hierarchy for this node might not exist, so we cycle through all
+        parent = 'dependNode'
+
+        for node in inheritance:
+            nodeName = addPyNode( dynModule, node, parent, extraAttrs=extraAttrs )
+            parent = node
+            if 'pymel.all' in sys.modules:
+                # getattr forces loading of Lazy object
+                setattr( sys.modules['pymel.all'], nodeName, getattr(dynModule,nodeName) )
+                            
+def addPyNode( dynModule, mayaType, parentMayaType, extraAttrs=None ):
+    """
+    create a PyNode type for a maya node.
+    """
 
     #_logger.debug("addPyNode adding %s->%s on dynModule %s" % (mayaType, parentMayaType, dynModule))
     # unicode is not liked by metaNode
@@ -2739,7 +2747,7 @@ def addPyNode( dynModule, mayaType, parentMayaType ):
     # store it on pymel.all, so in that case don't bother with the lazy-loading
     # behavior...
     if 'pymel.all' in sys.modules:
-        newType = addPyNodeCallback( dynModule, mayaType, pyNodeTypeName, parentPyNodeTypeName )
+        newType = addPyNodeCallback( dynModule, mayaType, pyNodeTypeName, parentPyNodeTypeName, extraAttrs )
         setattr( sys.modules['pymel.all'], pyNodeTypeName, newType )
     # otherwise, do the lazy-loading thing
     else:
@@ -2748,7 +2756,7 @@ def addPyNode( dynModule, mayaType, parentMayaType ):
         except KeyError:
             #_logger.info( "%s(%s): setting up lazy loading" % ( pyNodeTypeName, parentPyNodeTypeName ) )
             dynModule[pyNodeTypeName] = ( addPyNodeCallback,
-                                       ( dynModule, mayaType, pyNodeTypeName, parentPyNodeTypeName ) )
+                                       ( dynModule, mayaType, pyNodeTypeName, parentPyNodeTypeName, extraAttrs ) )
     return pyNodeTypeName
 
 def removePyNode( dynModule, mayaType ):

@@ -1,11 +1,18 @@
+# Built-in imports
 import os, re, inspect, keyword
+
+# Maya imports
 import maya.cmds as cmds
 import maya.mel as mm
+
+# PyMEL imports
 import pymel.util as util
 import pymel.versions as versions
-import plogging
-import pymel.mayautils as mayautils
-import startup
+
+# Module imports
+from . import plogging
+from . import startup
+
 _logger = plogging.getLogger(__name__)
 
 moduleNameShortToLong = {
@@ -370,7 +377,7 @@ def fixCodeExamples(style='maya', force=False):
     allCmds = set(examples.keys())
     # put commands that require manual interaction first
     manualCmds = ['fileBrowserDialog', 'fileDialog', 'fileDialog2', 'fontDialog']
-    skipCmds = ['colorEditor', 'emit', 'finder', 'doBlur', 'messageLine', 'renderWindowEditor', 'ogsRender', 'webBrowser']
+    skipCmds = ['colorEditor', 'emit', 'finder', 'doBlur', 'messageLine', 'renderWindowEditor', 'ogsRender', 'webBrowser', 'deleteAttrPattern']
     allCmds.difference_update(manualCmds)
     sortedCmds = manualCmds + sorted(allCmds)
     for command in sortedCmds:
@@ -495,6 +502,7 @@ def fixCodeExamples(style='maya', force=False):
     _logger.info("Done Fixing Examples")
 
     # restore manipulators and anim options
+    print manipOptions
     cmds.manipOptions( handleSize=manipOptions[0], scale=manipOptions[1] )
     cmds.animDisplay( e=1, timeCode=animOptions[0], timeCodeOffset=animOptions[1], modelUpdate=animOptions[2])
 
@@ -518,6 +526,29 @@ def getCallbackFlags(cmdInfo):
             if data['args'] in ['script', callable] or 'command' in flag.lower():
                 commandFlags += [flag, data['shortname']]
     return commandFlags
+
+def getModule(funcName, knownModuleCmds):
+    # determine to which module this function belongs
+    module = None
+    if funcName in ['eval', 'file', 'filter', 'help', 'quit']:
+        module = None
+    elif funcName.startswith('ctx') or funcName.endswith('Ctx') or funcName.endswith('Context'):
+        module = 'context'
+    #elif funcName in self.uiClassList:
+    #    module = 'uiClass'
+    #elif funcName in nodeHierarchyTree or funcName in nodeTypeToNodeCommand.values():
+    #    module = 'node'
+    else:
+        for moduleName, commands in knownModuleCmds.iteritems():
+            if funcName in commands:
+                module = moduleName
+                break
+        if module is None:
+            if mm.eval('whatIs "%s"' % funcName ) == 'Run Time Command':
+                module = 'runtime'
+            else:
+                module = 'other'
+    return module
 
 #-----------------------------------------------
 #  Command Help Documentation
@@ -882,16 +913,119 @@ def testNodeCmd( funcName, cmdInfo, nodeCmd=False, verbose=False ):
         cmds.delete( newObjs )
     return cmdInfo
 
+class InvalidNodeTypeError(Exception): pass
+class ManipNodeTypeError(InvalidNodeTypeError): pass
+
+def getInheritance( mayaType, checkManip3D=True ):
+    """Get parents as a list, starting from the node after dependNode, and
+    ending with the mayaType itself. To get the inheritance we use nodeType,
+    which requires a real node.  To do get these without poluting the scene we
+    use a dag/dg modifier, call the doIt method, get the lineage, then call
+    undoIt.
+    
+    A ManipNodeTypeError is the node type fed in was a manipulator
+    """
+    from . import apicache
+    import pymel.api as api
+    
+    if versions.current() >= versions.v2012:
+        # We now have nodeType(isTypeName)! yay!
+        kwargs = dict(isTypeName=True, inherited=True)
+        lineage = cmds.nodeType(mayaType, **kwargs)
+        if lineage is None:
+            controlPoint = cmds.nodeType('controlPoint', **kwargs)
+            # For whatever reason, nodeType(isTypeName) returns
+            # None for the following mayaTypes:
+            fixedLineages = {
+                'file':[u'texture2d', u'file'],
+                'lattice':controlPoint + [u'lattice'],
+                'mesh':controlPoint + [u'surfaceShape', u'mesh'],
+                'nurbsCurve':controlPoint + [u'curveShape', u'nurbsCurve'],
+                'nurbsSurface':controlPoint + [u'surfaceShape', u'nurbsSurface'],
+                'time':[u'time']
+            }
+            if mayaType in fixedLineages:
+                lineage = fixedLineages[mayaType]
+            else:
+                raise RuntimeError("Could not query the inheritance of node type %s" % mayaType)
+        elif checkManip3D and 'manip3D' in lineage:
+            raise ManipNodeTypeError
+        assert lineage[-1] == mayaType
+    else:
+        dagMod = api.MDagModifier()
+        dgMod = api.MDGModifier()
+    
+        obj = apicache._makeDgModGhostObject(mayaType, dagMod, dgMod)
+    
+        lineage = []
+        if obj is not None:
+            if (      obj.hasFn( api.MFn.kManipulator )      
+                   or obj.hasFn( api.MFn.kManipContainer )
+                   or obj.hasFn( api.MFn.kPluginManipContainer )
+                   or obj.hasFn( api.MFn.kPluginManipulatorNode )
+                   
+                   or obj.hasFn( api.MFn.kManipulator2D )
+                   or obj.hasFn( api.MFn.kManipulator3D )
+                   or obj.hasFn( api.MFn.kManip2DContainer) ):
+                raise ManipNodeTypeError
+     
+            if obj.hasFn( api.MFn.kDagNode ):
+                mod = dagMod
+                mod.doIt()
+                name = api.MFnDagNode(obj).partialPathName()
+            else:
+                mod = dgMod
+                mod.doIt()
+                name = api.MFnDependencyNode(obj).name()
+        
+            if not obj.isNull() and not obj.hasFn( api.MFn.kManipulator3D ) and not obj.hasFn( api.MFn.kManipulator2D ):
+                lineage = cmds.nodeType( name, inherited=1)
+            mod.undoIt()
+    return lineage
+
 def _getNodeHierarchy( version=None ):
     """
-    parse node hierarchy from docs and return as a list of 3-value tuples:
+    get node hierarchy as a list of 3-value tuples:
         ( nodeType, parents, children )
     """
-    from parsers import NodeHierarchyDocParser
-    parser = NodeHierarchyDocParser(version)
     import pymel.util.trees as trees
-    nodeHierarchyTree = trees.IndexedTree(parser.parse())
-    return [ (x.key, tuple( [y.key for y in x.parents()]), tuple( [y.key for y in x.childs()] ) ) \
+    
+    if versions.current() >= versions.v2012:
+        # We now have nodeType(isTypeName)! yay!
+        inheritances = {}
+        for nodeType in cmds.allNodeTypes():
+            try:
+                inheritances[nodeType] = getInheritance(nodeType)
+            except ManipNodeTypeError:
+                continue
+        
+        parentTree = {}
+        # Convert inheritance lists node=>parent dict
+        for nodeType, inheritance in inheritances.iteritems():
+            for i in xrange(len(inheritance)):
+                child = inheritance[i]
+                if i == 0:
+                    if child == 'dependNode':
+                        continue
+                    # FIXME: this is a hack because something may be wrong with the file node.  
+                    # all other nodes that inherit from 'texture2d' identify its parent as 'shadingDependNode'
+                    elif nodeType == 'file':
+                        parent = 'shadingDependNode'
+                    else:
+                        parent = 'dependNode'
+                else:
+                    parent = inheritance[i - 1]
+                
+                if child in parentTree:
+                    assert parentTree[child] == parent, "conflicting parents: node type '%s' previously determined parent was '%s'. now '%s'" % (child, parentTree[child], parent)
+                else:
+                    parentTree[child] = parent
+        nodeHierarchyTree = trees.treeFromDict(parentTree)
+    else:
+        from .parsers import NodeHierarchyDocParser
+        parser = NodeHierarchyDocParser(version)
+        nodeHierarchyTree = trees.IndexedTree(parser.parse())
+    return [ (x.value, tuple( [y.value for y in x.parents()]), tuple( [y.value for y in x.childs()] ) ) \
              for x in nodeHierarchyTree.preorder() ]
 
 
@@ -918,26 +1052,60 @@ class CmdCache(startup.SubItemCache):
                    }
         
     def rebuild(self) :
-        """Build and save to disk the list of Maya Python commands and their arguments"""
-    
+        """Build and save to disk the list of Maya Python commands and their arguments
+        
+        WARNING: will unload existing plugins, then (re)load all maya-installed
+        plugins, without making an attempt to return the loaded plugins to the
+        state they were at before this command is run.  Also, the act of
+        loading all the plugins may crash maya, especially if done from a
+        non-GUI session        
+        """
+        # Put in a debug, because this can be crashy
+        _logger.debug("Starting CmdCache.rebuild...")
+        
         # With extension can't get docs on unix 64
         # path is
         # /usr/autodesk/maya2008-x64/docs/Maya2008/en_US/Nodes/index_hierarchy.html
         # and not
         # /usr/autodesk/maya2008-x64/docs/Maya2008-x64/en_US/Nodes/index_hierarchy.html
-        
-        _logger.info("Rebuilding the list of Maya commands...")
+
         long_version = versions.installName()
+        
+        _logger.info("Rebuilding the maya node hierarchy...")
+        
+        # Load all plugins to get the nodeHierarchy / nodeFunctions
+        import pymel.api.plugins as plugins
+        
+        # We don't want to add in plugin nodes / commands - let that be done
+        # by the plugin callbacks.  However, unloading mechanism is not 100%
+        # ... sometimes functions get left in maya.cmds... and then trying
+        # to use those left-behind functions can cause crashes (ie,
+        # FBXExportQuaternion). So check which methods SHOULD be unloaded
+        # first, so we know to skip those if we come across them even after
+        # unloading the plugin
+        pluginCommands = set()
+        loadedPlugins = cmds.pluginInfo(q=True, listPlugins=True)
+        if loadedPlugins:
+            for plug in loadedPlugins:
+                plugCmds = plugins.pluginCommands(plug)
+                if plugCmds:
+                    pluginCommands.update(plugCmds)
+        
+        plugins.unloadAllPlugins()
 
         self.nodeHierarchy = _getNodeHierarchy(long_version)
         nodeFunctions = [ x[0] for x in self.nodeHierarchy ]
         nodeFunctions += nodeTypeToNodeCommand.values()
 
+
+        _logger.info("Rebuilding the list of Maya commands...")
+
         #nodeHierarchyTree = trees.IndexedTree(self.nodeHierarchy)
         self.uiClassList = UI_COMMANDS
         self.nodeCommandList = []
+        tmpModuleCmds = {}
         for moduleName, longname in moduleNameShortToLong.items():
-            moduleNameShortToLong[moduleName] = getModuleCommandList( longname, long_version )
+            tmpModuleCmds[moduleName] = getModuleCommandList( longname, long_version )
 
         tmpCmdlist = inspect.getmembers(cmds, callable)
 
@@ -945,27 +1113,9 @@ class CmdCache(startup.SubItemCache):
         self.moduleCmds = dict( (k,[]) for k in moduleNameShortToLong.keys() )
         self.moduleCmds.update( {'other':[], 'runtime': [], 'context': [], 'uiClass': [] } )
 
-        for funcName, data in tmpCmdlist :
-            # determine to which module this function belongs
-            module = None
-            if funcName in ['eval', 'file', 'filter', 'help', 'quit']:
-                module = None
-            elif funcName.startswith('ctx') or funcName.endswith('Ctx') or funcName.endswith('Context'):
-                module = 'context'
-            #elif funcName in self.uiClassList:
-            #    module = 'uiClass'
-            #elif funcName in nodeHierarchyTree or funcName in nodeTypeToNodeCommand.values():
-            #    module = 'node'
-            else:
-                for moduleName, commands in moduleNameShortToLong.iteritems():
-                    if funcName in commands:
-                        module = moduleName
-                        break
-                if module is None:
-                    if mm.eval('whatIs "%s"' % funcName ) == 'Run Time Command':
-                        module = 'runtime'
-                    else:
-                        module = 'other'
+        def addCommand(funcName):
+            _logger.debug('adding command: %s' % funcName)
+            module = getModule(funcName, tmpModuleCmds)
 
             cmdInfo = {}
 
@@ -989,7 +1139,6 @@ class CmdCache(startup.SubItemCache):
 
             self.cmdlist[funcName] = cmdInfo
 
-
 #            # func, args, (usePyNode, baseClsName, nodeName)
 #            # args = dictionary of command flags and their data
 #            # usePyNode = determines whether the class returns its 'nodeName' or uses PyNode to dynamically return
@@ -1003,6 +1152,12 @@ class CmdCache(startup.SubItemCache):
 #                     self.cmdlist[funcName] = (funcName, args, (False, None, None) )
 #                else:
 #                    self.cmdlist[funcName] = (funcName, args, () )
+
+        for funcName, _ in tmpCmdlist :
+            if funcName in pluginCommands:
+                _logger.debug("command %s was a plugin command that should have been unloaded - skipping" % funcName)
+                continue 
+            addCommand(funcName)
 
         # split the cached data for lazy loading
         cmdDocList = {}
@@ -1027,7 +1182,7 @@ class CmdCache(startup.SubItemCache):
     
         CmdDocsCache().write(cmdDocList)
         CmdExamplesCache().write(examples)
-    
+        
     def build(self):
         super(CmdCache, self).build()
 

@@ -146,7 +146,7 @@ def mayaInit(forversion=None) :
         isInitializing = False
         return False
 
-    _logger.debug( "startup.initialize running" )
+    _logger.debug( "startup.mayaInit running" )
     # for use with pymel compatible maya package
     os.environ['MAYA_SKIP_USERSETUP_PY'] = 'on'
 
@@ -163,8 +163,9 @@ def mayaInit(forversion=None) :
 
     try:
         from maya.cmds import about
-    except Exception, e:
-        raise e, str(e) + ": maya.standalone was successfully initialized, but pymel failed to import maya.cmds"
+    except Exception:
+        _logger.error("maya.standalone was successfully initialized, but pymel failed to import maya.cmds (or it was not populated)")
+        raise
 
     if not mayaStartupHasRun():
         _logger.debug( "running maya.app.startup" )

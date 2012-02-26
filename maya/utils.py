@@ -278,6 +278,23 @@ def formatGuiException(exceptionType, exceptionObject, traceBack, detail=2):
         maya.utils.formatGuiException = myExceptCB
         
     """
+    # originally, this code used
+    #    exceptionMsg = unicode(exceptionObject.args[0])
+    # Unfortunately, the problem with this is that the first arg is NOT always
+    # the string message - ie, witness
+    #    IOError(2, 'No such file or directory', 'non_existant.file')
+    # The next guess would be to simply use
+    #    exceptionMsg = unicode(exceptionObject).strip()
+    # However, there are unfortunately unicode problems with exceptions:
+    #    >>> str(IOError(2, 'foo', 'bar'))
+    #    "[Errno 2] foo: 'bar'"
+    #    >>> unicode(IOError(2, 'foo', 'bar'))
+    #    u"(2, 'foo')"
+    # Note that the unicode version gives the 'wrong' result; unfortunately, we
+    # can't simply rely on str, as maya is a multilingual product that may have
+    # unicode error strings.
+    # The method below seems the most reliable way of getting the 'best' result
+    
     exceptionMsg = unicode(exceptionObject).strip()
     # format the exception
     excLines = _decodeStack(traceback.format_exception_only(exceptionType, exceptionObject))

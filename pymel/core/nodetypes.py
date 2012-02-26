@@ -746,13 +746,16 @@ class DagNode(Entity):
         """
         return self.name(long=False)
 
-    def nodeName( self ):
+    def nodeName( self, stripNamespace=False ):
         """
         Just the name of the node, without any dag path
 
         :rtype: `unicode`
         """
-        return self.name().split('|')[-1]
+        name = self.name().rsplit('|', 1)[-1]
+        if stripNamespace:
+            name = name.rsplit(':', 1)[-1]
+        return name
 
 
     def __apiobject__(self) :
@@ -1620,14 +1623,31 @@ class Transform(DagNode):
 #        _api.MFnTransform(self.__apimfn__()).getRotation(quat, datatypes.Spaces.getIndex(space) )
 #        return datatypes.EulerRotation( quat.asEulerRotation() )
 
-    @_factories.addApiDocs( _api.MFnTransform, 'getRotation' )
-    def getRotation(self, space='object', **kwargs):
+    @_factories.addApiDocs( _api.MFnTransform, 'getRotation', overloadIndex=1 )
+    def getRotation(self, space='object', quaternion=False, **kwargs):
+        '''
+    Modifications:
+      - added 'quaternion' keyword arg, to specify whether the result
+        be returned as a Quaternion object, as opposed to the default
+        EulerRotation object
+      - added 'space' keyword arg, which defaults to 'object'
+        '''
         # quaternions are the only method that support a space parameter
         space = self._getSpaceArg(space, kwargs )
-        #return self._getRotation(space=space).asEulerRotation()
-        e = self._getRotation(space=space).asEulerRotation()
-        e.setDisplayUnit( datatypes.Angle.getUIUnit() )
-        return e
+        if space.lower() in ('object', 'pretransform', 'transform') and not quaternion:
+            # In this case, we can just go straight to the EulerRotation,
+            # without having to go through Quaternion - this means we will
+            # get information like angles > 360 degrees
+            euler = _api.MEulerRotation()
+            self.__apimfn__().getRotation(euler)
+            rot = datatypes.EulerRotation(euler)
+        else:
+            rot = self._getRotation(space=space)
+            if not quaternion:
+                rot =  rot.asEulerRotation()
+        if isinstance(rot, datatypes.EulerRotation):
+            rot.setDisplayUnit( datatypes.Angle.getUIUnit() )
+        return rot
 
 
     @_factories.addApiDocs( _api.MFnTransform, 'rotateBy' )
@@ -1762,11 +1782,11 @@ class RenderLayer(DependNode):
     def listAdjustments(self):
         return map( general.PyNode, _util.listForNone( cmds.editRenderLayerAdjustment( self, layer=1, q=1) ) )
 
-    def addAdjustments(self, members, noRecurse):
-        return cmds.editRenderLayerMembers( self, members, noRecurse=noRecurse )
+    def addAdjustments(self, members):
+        return cmds.editRenderLayerAdjustment( members, layer=self )
 
     def removeAdjustments(self, members ):
-        return cmds.editRenderLayerMembers( self, members, remove=True )
+        return cmds.editRenderLayerAdjustment( members, layer=self, remove=True )
 
     def setCurrent(self):
         cmds.editRenderLayerGlobals( currentRenderLayer=self)
@@ -2756,9 +2776,9 @@ class ObjectSet(Entity):
     def __getitem__(self, index):
         return self.asSelectionSet()[index]
 
-    def __len__(self, s):
+    def __len__(self):
         """:rtype: `int`"""
-        return len(self.asSelectionSet())
+        return cmds.sets(self, q=1, size=1)
 
 
     #def __eq__(self, s):

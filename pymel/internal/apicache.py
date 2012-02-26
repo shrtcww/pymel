@@ -49,18 +49,16 @@ def _makeDgModGhostObject(mayaType, dagMod, dgMod):
     # for some reason, this ensures good cleanup (don't ask me why...??)
     parent = dagMod.createNode ( 'transform', api.MObject())
 
-    try:
-        try :
-            obj = dgMod.createNode ( mayaType )
-        except RuntimeError:
-            # DagNode
+    try :
+        # DependNode
+        obj = dgMod.createNode ( mayaType )
+    except RuntimeError:
+        # DagNode
+        try:
             obj = dagMod.createNode ( mayaType, parent )
-            _logger.debug( "Made ghost DAG node of type '%s'" % mayaType )
-        else:
-            # DependNode
-            _logger.debug( "Made ghost DG node of type '%s'" % mayaType )
-    except Exception:
-        obj = None
+        except Exception, err:
+            _logger.debug("Error trying to create ghost node for '%s': %s" %  (mayaType, err))
+            return None
 
     if api.isValidMObject(obj) :
         return obj
@@ -274,6 +272,11 @@ class ApiCache(startup.SubItemCache):
     def _buildApiRelationships(self) :
         """
         Used to rebuild api info from scratch.
+        
+        WARNING: will load all maya-installed plugins, without making an
+        attempt to return the loaded plugins to the state they were at before
+        this command is run.  Also, the act of loading all the plugins may
+        crash maya, especially if done from a non-GUI session
         """
         # Put in a debug, because this can be crashy
         _logger.debug("Starting ApiCache._buildApiTypeHierarchy...")        
@@ -291,17 +294,39 @@ class ApiCache(startup.SubItemCache):
             startup.mayaInit()
         import maya.cmds
 
-        import pymel.mayautils as mayautils
+        import pymel.api.plugins as plugins
         # load all maya plugins
-        mayaLoc = mayautils.getMayaLocation()
-        # need to set to os.path.realpath to get a 'canonical' path for string comparison...
-        pluginPaths = [os.path.realpath(x) for x in os.environ['MAYA_PLUG_IN_PATH'].split(os.path.pathsep)]
-        for pluginPath in [x for x in pluginPaths if x.startswith( mayaLoc ) and os.path.isdir(x) ]:
-            for x in os.listdir( pluginPath ):
-                if os.path.isfile( os.path.join(pluginPath,x)):
-                    try:
-                        maya.cmds.loadPlugin( x )
-                    except RuntimeError: pass
+        
+        # There's some weirdness with plugin loading on windows XP x64... if
+        # you have a fresh user profile, and do:
+        
+        # import maya.standalone
+        # maya.standalone.initialize()
+        # import maya.mel as mel
+        # mel.eval('''source "initialPlugins.mel"''')
+        
+        # ..then things work.  But if you import maya.OpenMaya:
+        
+        # import maya.standalone
+        # maya.standalone.initialize()
+        # import maya.OpenMaya
+        # import maya.mel as mel
+        # mel.eval('''source "initialPlugins.mel"''')
+        
+        # ...it crashes when loading Mayatomr.  Also, oddly, if you load
+        # Mayatomr directly, instead of using initialPlugins.mel, it also
+        # crashes:
+        
+        # import maya.standalone
+        # maya.standalone.initialize()
+        # import maya.cmds
+        # maya.cmds.loadPlugin('C:\\3D\\Autodesk\\Maya2012\\bin\\plug-ins\\Mayatomr.mll')
+        
+        # Anyway, for now, adding in the line to do sourcing of initialPlugins.mel
+        # until I can figure out if it's possible to avoid this crash...
+        import maya.mel
+        maya.mel.eval('source "initialPlugins.mel"')
+        plugins.loadAllMayaPlugins()
 
         # all of maya OpenMaya api is now imported in module api's namespace
         mfnClasses = inspect.getmembers(api, lambda x: inspect.isclass(x) and issubclass(x, api.MFnBase))
@@ -394,7 +419,7 @@ class ApiCache(startup.SubItemCache):
             bridgeCache = ApiMelBridgeCache()
             bridgeCache.build()
         _util.mergeCascadingDicts( bridgeCache.apiClassOverrides, self.apiClassInfo, allowDictToListMerging=True )
-        
+
     def melBridgeContents(self):
         return self._mayaApiMelBridge.contents()
     

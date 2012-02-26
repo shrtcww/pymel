@@ -34,7 +34,7 @@ def mayaIsRunning():
 
 def mayaDocsLocation(version=None):
     docLocation = None
-    if (version == None or version == versions.installName() ) and mayaIsRunning():
+    if (version is None or version == versions.installName() ) and mayaIsRunning():
         # Return the doc location for the running version of maya
         from maya.cmds import showHelp
         docLocation = showHelp("", q=True, docs=True)
@@ -88,6 +88,7 @@ class CommandDocParser(HTMLParser):
         self.flags[self.currFlag] = {'longname': self.currFlag, 'shortname': None, 'args': None, 'numArgs': None, 'docstring': '', 'modes': [] }
 
     def addFlagData(self, data):
+        data = data.encode('ascii', 'ignore')
         # Shortname
         if self.iData == 0:
             self.flags[self.currFlag]['shortname'] = data.lstrip('-')
@@ -252,8 +253,23 @@ class NodeHierarchyDocParser(HTMLParser):
             raise IOError, "Cannot find maya documentation. Expected to find it at %s" % docloc
 
         f = open( os.path.join( docloc , 'Nodes/index_hierarchy.html' ) )
-        self.feed( f.read() )
-        f.close()
+        try:
+            rawdata = f.read()
+        finally:
+            f.close()
+
+        if versions.v2011 <= versions.current() < versions.v2012:
+            # The maya 2011 doc doesn't parse correctly with HTMLParser - the
+            # '< < <' lines get left out.  Use beautiful soup instead.
+            soup = BeautifulSoup( rawdata, convertEntities='html' )
+            for tag in soup.findAll(['tt', 'a']):
+                # piggypack on current handle_starttag / handle_data
+                self.handle_starttag(tag.name, tag.attrs)
+                data = tag.string
+                if data is not None:
+                    self.handle_data(data)
+        else:
+            self.feed( rawdata )
         return self.tree
 
     def __init__(self, version=None):
@@ -270,7 +286,7 @@ class NodeHierarchyDocParser(HTMLParser):
         self.currentTag = tag
 
     def handle_data(self, data):
-        _logger.info("data %r" % data)
+        _logger.debug("data %r" % data)
         if self.currentTag == 'tt':
             self.depth = data.count('>')
             #_logger.debug("lastDepth: %s - depth: %s" % (self.lastDepth, self.depth))
@@ -357,20 +373,28 @@ class CommandModuleDocParser(HTMLParser):
 class ApiDocParser(object):
     OBSOLETE_MSG = ['NO SCRIPT SUPPORT.', 'This method is not available in Python.']
     DEPRECATED_MSG = ['This method is obsolete.', 'Deprecated:']
-    
+
     def __init__(self, apiModule, version=None, verbose=False, enumClass=tuple):
-        version = versions.installName() if version is None else version
+        self.version = versions.installName() if version is None else version
         self.apiModule = apiModule
         self.verbose = verbose
-        self.docloc = mayaDocsLocation('2009' if version=='2008' else version)
+        self.docloc = mayaDocsLocation('2009' if self.version=='2008' else self.version)
         self.enumClass = enumClass
         if not os.path.isdir(self.docloc):
             raise IOError, "Cannot find maya documentation. Expected to find it at %s" % self.docloc
 
+        self.enums = {}
+        self.pymelEnums = {}
+        self.methods=util.defaultdict(list)
+        self.currentMethod=None
+        self.badEnums = []
+
+    def formatMsg(self, *args):
+        return self.apiClassName + '.' + self.currentMethod + ': ' + ' '.join( [ str(x) for x in args ] )
 
     def xprint(self, *args):
         if self.verbose:
-            print self.apiClassName + '.' + self.currentMethod + ':', ' '.join( [ str(x) for x in args ] )
+            print self.formatMsg(*args)
 
     def getPymelMethodNames(self):
 
@@ -449,18 +473,18 @@ class ApiDocParser(object):
         if len(enumDict) > 1:
             enumList = enumDict.keys()
             capitalizedRe =  re.compile('([A-Z0-9][a-z0-9]*)')
-            
+
             # We first aim to remove all similar 'camel-case-group' prefixes, ie:
             # if our enums look like:
             #    kFooBar
             #    kFooSomeThing
             #    kFooBunnies
             # we want to get Bar, SomeThing, Bunnies
-            
-            # {'kFooBar':0, 'kFooSomeThing':1} 
+
+            # {'kFooBar':0, 'kFooSomeThing':1}
             #     => [['k', 'Foo', 'Some', 'Thing'], ['k', 'Foo', 'Bar']]
             splitEnums = [ [ y for y in capitalizedRe.split( x ) if y ] for x in enumList ]
-            
+
             # [['k', 'Invalid'], ['k', 'Pre', 'Transform']]
             #     => [('k', 'k'), ('Foo', 'Foo'), ('Some', 'Bar')]
             splitZip = zip( *splitEnums )
@@ -468,8 +492,8 @@ class ApiDocParser(object):
                 if  tuple([partList[0]]*len(partList)) == partList:
                     [ x.pop(0) for x in splitEnums ]
                 else: break
-            # splitEnums == [['Some', 'Thing'], ['Bar']]    
-            
+            # splitEnums == [['Some', 'Thing'], ['Bar']]
+
             joinedEnums = [ util.uncapitalize(''.join(x), preserveAcronymns=True ) for x in splitEnums]
             for i, enum in enumerate(joinedEnums):
                 if _iskeyword(enum):
@@ -500,7 +524,7 @@ class ApiDocParser(object):
                     'uint', 'uint2', 'uint3', 'uint4',
                     'short', 'short2', 'short3', 'short4',
                     'long', 'long2', 'long3',
-                    'MString', 'MStringArray']
+                    'MString', 'MStringArray', 'MStatus']
         notTypes = ['MCallbackId']
 
         if type is None: return type
@@ -572,14 +596,313 @@ class ApiDocParser(object):
         else:
             return False
 
-    def parse(self, apiClassName):
+    def parseTypes(self, proto):
+        defaults={}
+        names=[]
+        types ={}
+        typeQualifiers={}
+        tmpTypes=[]
+        # TYPES
+        for paramtype in proto.findAll( 'td', **{'class':'paramtype'} ) :
+            buf = []
+            [ buf.extend(x.split()) for x in paramtype.findAll( text=True ) ] #if x.strip() not in ['', '*', '&', 'const', 'unsigned'] ]
+            buf = [ x.strip().encode('ascii', 'ignore') for x in buf if x.strip() ]
 
-        self.enums = {}
-        self.pymelEnums = {}
-        self.methods=util.defaultdict(list)
-        self.currentMethod=None
-        self.badEnums = []
+            i=0
+            for i, each in enumerate(buf):
+                if each not in [ '*', '&', 'const', 'unsigned']:
+                    argtype = buf.pop(i)
+                    break
+            else:
+                # We didn't find any arg type - therefore everything
+                # in buf is in the set('*', '&', 'const', 'unsigned')
+                # ... so it's implicitly an unsigned int
+                argtype = 'int'
 
+            if 'unsigned' in buf and argtype in ('char','int', 'int2',
+                                                 'int3', 'int4'):
+                argtype = 'u' + argtype
+
+            argtype = self.handleEnums(argtype)
+
+            #print '\targtype', argtype, buf
+            tmpTypes.append( (argtype, buf) )
+
+        # ARGUMENT NAMES
+        i = 0
+        for paramname in  proto.findAll( 'td', **{'class':'paramname'} )  :
+            buf = [ x.strip().encode('ascii', 'ignore') for x in paramname.findAll( text=True ) if x.strip() not in['',','] ]
+            if not buf: continue
+            argname = buf[0]
+            data = buf[1:]
+
+            type, qualifiers = tmpTypes[i]
+            default=None
+            joined = ''.join(data).strip()
+
+            if joined:
+                joined = joined.encode('ascii', 'ignore')
+                # break apart into index and defaults :  '[3] = NULL'
+                brackets, default = re.search( '([^=]*)(?:\s*=\s*(.*))?', joined ).groups()
+
+                if brackets:
+                    numbuf = re.split( r'\[|\]', brackets)
+                    if len(numbuf) > 1:
+                        # Note that these two args need to be cast differently:
+                        #   int2 foo;
+                        #   int bar[2];
+                        # ... so, instead of storing the type of both as
+                        # 'int2', we make the second one 'int__array2'
+                        type = type + '__array' + numbuf[1]
+                    else:
+                        print "this is not a bracketed number", repr(brackets), joined
+
+                if default is not None:
+                    try:
+                        # Constants
+                        default = {
+                            'true' : True,
+                            'false': False,
+                            'NULL' : None
+                        }[default]
+                    except KeyError:
+                        try:
+                            if type in ['int', 'uint','long', 'uchar']:
+                                default = int(default)
+                            elif type in ['float', 'double']:
+                                # '1.0 / 24.0'
+                                if '/' in default:
+                                    default = eval(default)
+                                # '1.0e-5F'  --> '1.0e-5'
+                                elif default.endswith('F'):
+                                    default = float(default[:-1])
+                                else:
+                                    default = float(default)
+                            else:
+                                default = self.handleEnumDefaults(default, type)
+                        except ValueError:
+                            default = self.handleEnumDefaults(default, type)
+                    # default must be set here, because 'NULL' may be set to back to None, but this is in fact the value we want
+                    self.xprint('DEFAULT', default)
+                    defaults[argname] = default
+
+            types[argname] = type
+            typeQualifiers[argname] = qualifiers
+            names.append(argname)
+            i+=1
+        assert sorted(names) == sorted(types.keys()), 'name-type mismatch %s %s' %  (sorted(names), sorted(types.keys()) )
+        return names, types, typeQualifiers, defaults
+
+    def parseEnums(self, proto):
+        enumValues={}
+        enumDocs={}
+        for em in proto.findNextSiblings( 'div', limit=1)[0].findAll( 'em'):
+            enumKey = str(em.contents[-1])
+            try:
+                enumVal = getattr(self.apiClass, enumKey)
+            except:
+                _logger.warn( "%s.%s of enum %s does not exist" % ( self.apiClassName, enumKey, self.currentMethod))
+                enumVal = None
+            enumValues[ enumKey ] = enumVal
+
+            docItem = em.next.next.next.next.next
+
+            if isinstance( docItem, NavigableString ):
+                enumDocs[enumKey] = str(docItem).strip()
+            else:
+                enumDocs[enumKey] = str(docItem.contents[0]).strip()
+
+        pymelEnumList = self.getPymelEnums( enumValues )
+        for val, pyval in zip(enumValues,pymelEnumList):
+            enumDocs[pyval] = enumDocs[val]
+
+        enumInfo = {'values' : util.Enum(self.currentMethod, enumValues, multiKeys=True),
+                    'valueDocs' : enumDocs,
+
+                      #'doc' : methodDoc
+                    }
+        return enumInfo, util.Enum(self.currentMethod, pymelEnumList, multiKeys=True)
+
+    def isObsolete(self, proto):
+        # ARGUMENT DIRECTION AND DOCUMENTATION
+        addendum = proto.findNextSiblings( 'div', limit=1)[0]
+        #try: self.xprint( addendum.findAll(text=True ) )
+        #except: pass
+
+        #if addendum.findAll( text = re.compile( '(This method is obsolete.)|(Deprecated:)') ):
+
+        if addendum.findAll( text=lambda x: x in self.OBSOLETE_MSG ):
+            self.xprint( "OBSOLETE" )
+            self.currentMethod = None
+            return True
+        return False
+
+    def parseMethodArgs(self, proto, returnType, names, types, typeQualifiers):
+        directions={}
+        docs={}
+        deprecated = False
+        returnDoc = ''
+ 
+        addendum = proto.findNextSiblings( 'div', limit=1)[0]
+        #if self.currentMethod == 'createColorSet': raise NotImplementedError
+        if addendum.findAll( text=lambda x: x in self.DEPRECATED_MSG ):
+            self.xprint( "DEPRECATED" )
+            #print self.apiClassName + '.' + self.currentMethod + ':' + ' DEPRECATED'
+            deprecated = True
+
+
+        methodDoc = ' '.join( addendum.p.findAll( text=True ) ).encode('ascii', 'ignore')
+
+        tmpDirs = []
+        tmpNames = []
+        tmpDocs = []
+
+        #extraInfo = addendum.dl.table
+        if self.version and int(self.version.split('-')[0]) < 2013:
+            extraInfos = addendum.findAll('table')
+        else:
+            #extraInfos = addendum.findAll(lambda tag: tag.name == 'table' and ('class', 'params') in tag.attrs)
+            extraInfos = addendum.findAll(lambda tag: tag.name == 'dl' and ('class', 'return') not in tag.attrs and ('class', 'user') not in tag.attrs)
+        if extraInfos:
+            #print "NUMBER OF TABLES", len(extraInfos)
+            if self.version and int(self.version.split('-')[0]) < 2013:
+                extraInfo = extraInfos[0]
+                tmpDirs += extraInfo.findAll( text=lambda text: text in ['[in]', '[out]'] )
+                #tmpNames += [ em.findAll( text=True, limit=1 )[0] for em in extraInfo.findAll( 'em') ]
+                for tr in extraInfo.findAll( 'tr'):
+                    assert tr, "could not find name tr"
+                    td = tr.findNext(lambda tag: tag.name == 'td' and ('class', 'paramname') in tag.attrs)
+                    assert td, "could not find name t"
+                    name = td.findAll( text=True, limit=1 )[0]
+                    tmpNames.append(name)
+                tds = extraInfo.findAll( lambda tag: tag.name == 'td' and not any([item for item in tag.attrs if 'class' in item]) )
+                for doc in [td.findAll( text=lambda text: text.strip(), recursive=False) for td in tds]:
+                    tmpDocs.append( ''.join(doc) )
+                if not tmpDocs:
+                    tmpDocs = [''] * len(tmpDirs)
+            else:
+                for extraInfo in extraInfos:
+                    for tr in extraInfo.findAll( 'tr'):
+                        assert tr, "could not find name tr"
+                        tds = tr.findAll(lambda tag: tag.name == 'td')
+                        assert tds, "could not find name td"
+                        assert len(tds) == 3, "td list is unexpected length: %d" % len(tds)
+    
+                        tt = tds[0].findNext(lambda tag: tag.name == 'tt')
+                        dir = tt.findAll( text=True, limit=1 )[0]
+                        tmpDirs.append(dir.encode('ascii', 'ignore'))
+    
+                        name = tds[1].findAll( text=True, limit=1 )[0]
+                        tmpNames.append(name.encode('ascii', 'ignore'))
+                        
+                        doc = ''.join(tds[2].findAll( text=True))
+                        tmpDocs.append(doc.encode('ascii', 'ignore'))
+
+#                print "here2"
+#                for tr in extraInfo.findAll( 'tr'):
+#                    assert tr, "could not find name tr"
+#                    tdName = tr.findNext(lambda tag: tag.name == 'td' and ('class', 'paramname') in tag.attrs)
+#                    assert tdName, "could not find name td"
+#                    name = tdName.findAll( text=True, limit=1 )[0]
+#                    tmpNames.append(name)
+#
+#                    tdDir = tr.findNext(lambda tag: tag.name == 'td' and ('class', 'paramdir') in tag.attrs)
+#                    assert tdDir, "could not find direction td"
+#                    name = tdDir.findAll( text=True, limit=1 )[0]
+#                    tmpDirs.append(name)
+
+#                            for td in extraInfo.findAll( 'td' ):
+#                                assert td, "could not find doc td"
+#                                for doc in td.findAll( text=lambda text: text.strip(), recursive=False) :
+#                                    if doc: tmpDocs.append( ''.join(doc) )
+
+            assert len(tmpDirs) == len(tmpNames) == len(tmpDocs), \
+                'names, types, and docs are of unequal lengths: %s vs. %s vs. %s' % (tmpDirs, tmpNames, tmpDocs)
+            assert sorted(tmpNames) == sorted(typeQualifiers.keys()), 'name-typeQualifiers mismatch %s %s' %  (sorted(tmpNames), sorted(typeQualifiers.keys()) )
+            #self.xprint(  sorted(tmpNames), sorted(typeQualifiers.keys()), sorted(typeQualifiers.keys()) )
+
+            for name, dir, doc in zip(tmpNames, tmpDirs, tmpDocs) :
+                if dir == '[in]':
+                    # attempt to correct bad in/out docs
+                    if re.search(r'\b([fF]ill|[sS]tor(age)|(ing))|([rR]esult)', doc ):
+                        _logger.warn( "%s.%s(%s): Correcting suspected output argument '%s' based on doc '%s'" % (
+                                                            self.apiClassName,self.currentMethod,', '.join(names), name, doc))
+                        dir = 'out'
+                    elif not re.match( 'set[A-Z]', self.currentMethod) and '&' in typeQualifiers[name] and types[name] in ['int', 'double', 'float', 'uint', 'uchar']:
+                        _logger.warn( "%s.%s(%s): Correcting suspected output argument '%s' based on reference type '%s &' ('%s')'" % (
+                                                            self.apiClassName,self.currentMethod,', '.join(names), name, types[name], doc))
+                        dir = 'out'
+                    else:
+                        dir = 'in'
+                elif dir == '[out]':
+                    if types[name] == 'MAnimCurveChange':
+                        _logger.warn( "%s.%s(%s): Setting MAnimCurveChange argument '%s' to an input arg (instead of output)" % (
+                                                            self.apiClassName,self.currentMethod,', '.join(names), name))
+                        dir = 'in'
+                    else:
+                        dir = 'out'
+                elif dir == '[in,out]':
+                    # it makes the most sense to treat these types as inputs
+                    dir = 'in'
+                else:
+                    raise ValueError("direction must be either '[in]', '[out]', or '[in,out]'. got %r" % dir)
+
+                assert name in names
+                directions[name] = dir
+                docs[name] = doc.replace('\n\r', ' ').replace('\n', ' ')
+
+
+            # Documentation for Return Values
+            if returnType:
+                try:
+                    returnDocBuf = addendum.findAll( 'dl', limit=1, **{'class':'return'} )[0].findAll( text=True )
+                except IndexError:
+                    pass
+                else:
+                    if returnDocBuf:
+                        returnDoc = ''.join( returnDocBuf[1:] ).replace('\n\r', ' ').replace('\n', ' ').encode('ascii', 'ignore')
+                    self.xprint(  'RETURN_DOC', repr(returnDoc)  )
+        #assert len(names) == len(directions), "name lenght mismatch: %s %s" % (sorted(names), sorted(directions.keys()))
+        return directions, docs, methodDoc, returnDoc, deprecated
+
+    def getMethodNameAndOutput(self, proto):
+        # NAME AND RETURN TYPE
+        memb = proto.findAll( 'td', **{'class':'memname'} )[0]
+        buf = [ x.strip().encode('ascii', 'ignore') for x in memb.findAll( text=True )]
+        if len(buf) ==1:
+            buf = [ x for x in buf[0].split() if x not in ['const', 'unsigned'] ]
+            if len(buf)==1:
+                returnType = None
+                methodName = buf[0]
+            else:
+                returnType = ''.join(buf[:-1])
+                methodName = buf[-1]
+        else:
+            returnType = buf[0]
+            methodName = buf[1]
+            buf = [ x for x in buf[0].split() if x not in ['const', 'unsigned'] ]
+            if len(buf) > 1:
+                returnType += buf[0]
+                methodName = buf[1]
+
+        methodName = methodName.split('::')[-1]
+
+        # convert operators to python special methods
+        if methodName.startswith('operator'):
+            methodName = self.getOperatorName(methodName)
+        else:
+            #constructors and destructors
+            if methodName.startswith('~') or methodName == self.apiClassName:
+                methodName = None
+        # no MStatus in python
+        if returnType in ['MStatus', 'void']:
+            returnType = None
+        else:
+            returnType = self.handleEnums(returnType)
+        
+        return methodName, returnType
+
+    def iterProto(self, apiClassName):
         self.apiClassName = apiClassName
         self.apiClass = getattr(self.apiModule, self.apiClassName)
 
@@ -589,320 +912,88 @@ class ApiDocParser(object):
         _logger.info( "parsing file %s" , self.docfile )
 
         f = open( self.docfile )
-
         soup = BeautifulSoup( f.read(), convertEntities='html' )
         f.close()
 
-
         for proto in soup.body.findAll( 'div', **{'class':'memproto'} ):
+            yield proto
 
-            returnDoc = ''
+    def parse(self, apiClassName):
 
-            # NAME AND RETURN TYPE
-            memb = proto.findAll( 'td', **{'class':'memname'} )[0]
-            buf = [ x.strip() for x in memb.findAll( text=True )]
-            if len(buf) ==1:
-                buf = [ x for x in buf[0].split() if x not in ['const', 'unsigned'] ]
-                if len(buf)==1:
-                    returnType = None
-                    methodName = buf[0]
-                else:
-                    returnType = ''.join(buf[:-1])
-                    methodName = buf[-1]
-            else:
-                returnType = buf[0]
-                methodName = buf[1]
-                buf = [ x for x in buf[0].split() if x not in ['const', 'unsigned'] ]
-                if len(buf) > 1:
-                    returnType += buf[0]
-                    methodName = buf[1]
+        self.enums = {}
+        self.pymelEnums = {}
+        self.methods=util.defaultdict(list)
+        self.currentMethod=None
+        self.badEnums = []
 
-            methodName = methodName.split('::')[-1]
+        for proto in self.iterProto(apiClassName):
 
-            # convert operators to python special methods
-            if methodName.startswith('operator'):
-                methodName = self.getOperatorName(methodName)
-
-                if methodName is None: continue
-
-            # no MStatus in python
-            if returnType in ['MStatus', 'void']:
-                returnType = None
-            else:
-                returnType = self.handleEnums(returnType)
-
+            methodName, returnType = self.getMethodNameAndOutput(proto)
+            if methodName is None: continue
             # convert to unicode
             self.currentMethod = str(methodName)
-
-            #constructors and destructors
-            if self.currentMethod.startswith('~') or self.currentMethod == self.apiClassName:
+            if self.currentMethod == 'void(*':
                 continue
-
             # ENUMS
             if returnType == 'enum':
                 self.xprint( "ENUM", returnType)
                 #print returnType, methodName
                 try:
-                    enumValues={}
-                    enumDocs={}
-                    for em in proto.findNextSiblings( 'div', limit=1)[0].findAll( 'em'):
-                        enumKey = str(em.contents[-1])
-                        try:
-                            enumVal = getattr(self.apiClass, enumKey)
-                        except:
-                            _logger.warn( "%s.%s of enum %s does not exist" % ( self.apiClassName, enumKey, self.currentMethod))
-                            enumVal = None
-                        enumValues[ enumKey ] = enumVal
-
-                        docItem = em.next.next.next.next.next
-
-                        if isinstance( docItem, NavigableString ):
-                            enumDocs[enumKey] = str(docItem).strip()
-                        else:
-                            enumDocs[enumKey] = str(docItem.contents[0]).strip()
-
-                    pymelEnumList = self.getPymelEnums( enumValues )
-                    for val, pyval in zip(enumValues,pymelEnumList):
-                        enumDocs[pyval] = enumDocs[val]
-
-                    enumInfo = {'values' : util.Enum(self.currentMethod, enumValues, multiKeys=True),
-                                'valueDocs' : enumDocs,
-
-                                  #'doc' : methodDoc
-                                }
-
                     #print enumList
-
-                    self.enums[self.currentMethod] = enumInfo
-                    self.pymelEnums[self.currentMethod] = util.Enum(self.currentMethod, pymelEnumList, multiKeys=True)
+                    enumData = self.parseEnums(proto)
+                    self.enums[self.currentMethod] = enumData[0]
+                    self.pymelEnums[self.currentMethod] = enumData[1]
 
                 except AttributeError, msg:
-                    _logger.error( "FAILED ENUM: %s", msg )
+                    _logger.error("FAILED ENUM: %s", msg)
 
             # ARGUMENTS
             else:
                 self.xprint( "RETURN", returnType)
 
-                argInfo={}
-                argList=[]
-                defaults={}
-                names=[]
-                directions={}
-                docs={}
-                inArgs=[]
-                outArgs=[]
-                types ={}
-                typeQualifiers={}
-                methodDoc = ''
-                deprecated = False
-
                 # Static methods
                 static = False
                 try:
-                    code = proto.findAll('code')[-1].string
-                    if code and code.strip() == '[static]':
-                        static = True
+                    res = proto.findAll('code')
+                    if res:
+                        code = res[-1].string
+                        if code and code.strip() == '[static]':
+                            static = True
                 except IndexError: pass
 
-                tmpTypes=[]
-                # TYPES
-                for paramtype in proto.findAll( 'td', **{'class':'paramtype'} ) :
-                    buf = []
-                    [ buf.extend(x.split()) for x in paramtype.findAll( text=True ) ] #if x.strip() not in ['', '*', '&', 'const', 'unsigned'] ]
-                    buf = [ str(x.strip()) for x in buf if x.strip() ]
+                if self.isObsolete(proto):
+                    continue
 
-                    i=0
-                    for i, each in enumerate(buf):
-                        if each not in [ '*', '&', 'const', 'unsigned']:
-                            argtype = buf.pop(i)
-                            break
-                    else:
-                        # We didn't find any arg type - therefore everything
-                        # in buf is in the set('*', '&', 'const', 'unsigned')
-                        # ... so it's implicitly an unsigned int
-                        argtype = 'int'
-
-                    if 'unsigned' in buf and argtype in ('char','int', 'int2',
-                                                         'int3', 'int4'):
-                        argtype = 'u' + argtype
-
-                    argtype = self.handleEnums(argtype)
-
-                    #print '\targtype', argtype, buf
-                    tmpTypes.append( (argtype, buf) )
-
-                # ARGUMENT NAMES
-                i = 0
-                for paramname in  proto.findAll( 'td', **{'class':'paramname'} )  :
-                    buf = [ x.strip() for x in paramname.findAll( text=True ) if x.strip() not in['',','] ]
-                    if buf:
-                        argname = buf[0]
-                        data = buf[1:]
-
-                        type, qualifiers = tmpTypes[i]
-                        default=None
-                        joined = ''.join(data).strip()
-
-                        if joined:
-                            # break apart into index and defaults :  '[3] = NULL'
-                            brackets, default = re.search( '([^=]*)(?:\s*=\s*(.*))?', joined ).groups()
-
-                            if brackets:
-                                numbuf = re.split( r'\[|\]', brackets)
-                                if len(numbuf) > 1:
-                                    # Note that these two args need to be cast differently:
-                                    #   int2 foo;
-                                    #   int bar[2];
-                                    # ... so, instead of storing the type of both as
-                                    # 'int2', we make the second one 'int__array2'
-                                    type = type + '__array' + numbuf[1]
-                                else:
-                                    print "this is not a bracketed number", repr(brackets), joined
-
-                            if default is not None:
-                                try:
-                                    # Constants
-                                    default = {
-                                        'true' : True,
-                                        'false': False,
-                                        'NULL' : None
-                                    }[default]
-                                except KeyError:
-                                    try:
-                                        if type in ['int', 'uint','long', 'uchar']:
-                                            default = int(default)
-                                        elif type in ['float', 'double']:
-                                            # '1.0 / 24.0'
-                                            if '/' in default:
-                                                default = eval(default.encode('ascii', 'ignore'))
-                                            # '1.0e-5F'  --> '1.0e-5'
-                                            elif default.endswith('F'):
-                                                default = float(default[:-1])
-                                            else:
-                                                default = float(default)
-                                        else:
-                                            default = self.handleEnumDefaults(default, type)
-                                    except ValueError:
-                                        default = self.handleEnumDefaults(default, type)
-                                # default must be set here, because 'NULL' may be set to back to None, but this is in fact the value we want
-                                self.xprint('DEFAULT', default)
-                                defaults[argname] = default
-
-                        types[argname] = type
-                        typeQualifiers[argname] = qualifiers
-                        names.append(argname)
-                        i+=1
+                names, types, typeQualifiers, defaults = self.parseTypes(proto)
 
                 try:
-                    # ARGUMENT DIRECTION AND DOCUMENTATION
-                    addendum = proto.findNextSiblings( 'div', limit=1)[0]
-                    #try: self.xprint( addendum.findAll(text=True ) )
-                    #except: pass
+                    directions, docs, methodDoc, returnDoc, deprecated = self.parseMethodArgs(proto, returnType, names, types, typeQualifiers)
+                except AssertionError, msg:
+                    _logger.error(self.formatMsg("FAILED", str(msg)))
+                    continue
+                except AttributeError:
+                    import traceback
+                    _logger.error(self.formatMsg(traceback.format_exc()))
+                    continue
+                    #pass
 
-                    #if addendum.findAll( text = re.compile( '(This method is obsolete.)|(Deprecated:)') ):
-
-                    if addendum.findAll( text=lambda x: x in self.OBSOLETE_MSG ):
-                        self.xprint( "OBSOLETE" )
-                        self.currentMethod = None
-                        continue
-
-                    #if self.currentMethod == 'createColorSet': raise NotImplementedError
-                    if addendum.findAll( text=lambda x: x in self.DEPRECATED_MSG ):
-                        self.xprint( "DEPRECATED" )
-                        #print self.apiClassName + '.' + self.currentMethod + ':' + ' DEPRECATED'
-                        deprecated = True
-
-
-                    methodDoc = ' '.join( addendum.p.findAll( text=True ) )
-
-                    tmpDirs = []
-                    tmpNames = []
-                    tmpDocs = []
-
-                    #extraInfo = addendum.dl.table
-                    extraInfos = addendum.findAll('table')
-
-                    if extraInfos:
-                        #print "NUMBER OF TABLES", len(extraInfos)
-                        for extraInfo in extraInfos:
-                            tmpDirs += extraInfo.findAll( text=lambda text: text in ['[in]', '[out]'] )
-
-                            #tmpNames += [ em.findAll( text=True, limit=1 )[0] for em in extraInfo.findAll( 'em') ]
-                            tmpNames = []
-                            for tr in extraInfo.findAll( 'tr'):
-                                assert tr, "could not find name tr"
-                                em = tr.findNext( 'em' )
-                                assert tr, "could not find name em"
-                                name = em.findAll( text=True, limit=1 )[0]
-                                tmpNames.append(name)
-
-#                            for td in extraInfo.findAll( 'td' ):
-#                                assert td, "could not find doc td"
-#                                for doc in td.findAll( text=lambda text: text.strip(), recursive=False) :
-#                                    if doc: tmpDocs.append( ''.join(doc) )
-
-                            for doc in [td.findAll( text=lambda text: text.strip(), recursive=False) for td in extraInfo.findAll( 'td' )]:
-                                if doc: tmpDocs.append( ''.join(doc) )
-
-
-                        assert len(tmpDirs) == len(tmpNames) == len(tmpDocs), 'names and types lists are of unequal lengths: %s vs. %s vs. %s' % (tmpDirs, tmpNames, tmpDocs)
-                        assert sorted(tmpNames) == sorted(typeQualifiers.keys()), 'name list mismatch %s %s' %  (sorted(tmpNames), sorted(typeQualifiers.keys()) )
-
-                        #self.xprint(  sorted(tmpNames), sorted(typeQualifiers.keys()), sorted(typeQualifiers.keys()) )
-
-                        for name, dir, doc in zip(tmpNames, tmpDirs, tmpDocs) :
-                            if dir == '[in]':
-                                # attempt to correct bad in/out docs
-                                if re.search(r'\b([fF]ill|[sS]tor(age)|(ing))|([rR]esult)', doc ):
-                                    _logger.warn( "%s.%s(%s): Correcting suspected output argument '%s' based on doc '%s'" % (
-                                                                        self.apiClassName,self.currentMethod,', '.join(names), name, doc))
-                                    dir = 'out'
-                                elif not re.match( 'set[A-Z]', self.currentMethod) and '&' in typeQualifiers[name] and types[name] in ['int', 'double', 'float', 'uint', 'uchar']:
-                                    _logger.warn( "%s.%s(%s): Correcting suspected output argument '%s' based on reference type '%s &' ('%s')'" % (
-                                                                        self.apiClassName,self.currentMethod,', '.join(names), name, types[name], doc))
-                                    dir = 'out'
-                                else:
-                                    dir = 'in'
-                            elif dir == '[out]':
-                                if types[name] == 'MAnimCurveChange':
-                                    _logger.warn( "%s.%s(%s): Setting MAnimCurveChange argument '%s' to an input arg (instead of output)" % (
-                                                                        self.apiClassName,self.currentMethod,', '.join(names), name))
-                                    dir = 'in'
-                                else:
-                                    dir = 'out'
-                            else: raise
-
-                            assert name in names
-                            directions[name] = dir
-                            docs[name] = doc
-
-
-                        # Documentation for Return Values
-                        if returnType:
-                            try:
-                                returnDocBuf = addendum.findAll( 'dl', limit=1, **{'class':'return'} )[0].findAll( text=True )
-                            except IndexError:
-                                pass
-                            else:
-                                if returnDocBuf:
-                                    returnDoc = ''.join( returnDocBuf[1:] ).strip('\n')
-                                self.xprint(  'RETURN_DOC', repr(returnDoc)  )
-
-
-                except (AttributeError, AssertionError), msg:
-                    self.xprint( "FAILED", str(msg) )
-                    pass
-
-
-#                print names
-#                print types
-#                print defaults
-#                print directions
+#                print "names", names
+#                print "types", types
+#                print "defaults", defaults
+#                print "directions", directions
 #                print docs
 
+                argInfo={}
+                argList=[]
+                inArgs=[]
+                outArgs=[]
+                
                 for argname in names[:] :
                     type = types[argname]
-                    direction = directions.get(argname, 'in')
+                    if argname not in directions:
+                        self.xprint("Warning: assuming direction is 'in'")
+                        directions[argname] = 'in'
+                    direction = directions[argname]
                     doc = docs.get( argname, '')
 
                     if type == 'MStatus':
@@ -935,9 +1026,10 @@ class ApiDocParser(object):
                 # now that the directions are correct, make the argList
                 for argname in names:
                     type = types[argname]
-                    direction = directions.get(argname, 'in')
+                    self.xprint( "DIRECTIONS", directions )
+                    direction = directions[argname]
                     data = ( argname, type, direction)
-                    if self.verbose: self.xprint( "ARG", data )
+                    self.xprint( "ARG", data )
                     argList.append(  data )
 
                 methodInfo = { 'argInfo': argInfo,

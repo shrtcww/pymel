@@ -6,6 +6,7 @@ import platform
 import maya.cmds as cmds
 from pymel.all import *
 import pymel.core as pm
+import pymel.util as util
 from maintenance.pymelControlPanel import getClassHierarchy
 from pymel.internal.factories import apiEnumsToPyComponents
 import pymel.internal.factories as factories
@@ -16,7 +17,7 @@ from pymel.util.testing import TestCaseExtended, setCompare
 VERBOSE = False
 
 def getFundamentalTypes():
-    classList = sorted( list( set( [ key[0] for key in factories.apiToMelData.keys()] ) ) )
+    classList = sorted( set( [ key[0] for key in factories.apiToMelData.keys()] ) )
     #leaves = [ util.capitalize(x.key) for x in factories.nodeHierarchy.leaves() ]
     leaves = [ util.capitalize(node) for node, parents, children in factories.nodeHierarchy if not children ]
     return sorted( set(classList).intersection(leaves) )
@@ -235,6 +236,8 @@ class testCase_attribs(unittest.TestCase):
 
 def testInvertibles():
     classList = getFundamentalTypes()
+    
+    
     for pynodeName in classList:
         try:
             pynode = getattr( core.nodetypes, pynodeName )
@@ -259,6 +262,7 @@ def testInvertibles():
                 print "skipping shape", pynode
                 continue
         else:
+            print "creating: %s" % util.uncapitalize(pynodeName)
             obj = createNode( util.uncapitalize(pynodeName) )
         
         print repr(obj)
@@ -1758,7 +1762,7 @@ class testCase_sets(TestCaseExtended):
     
     def test_ObjectSet_mixedObjectsComponents(self):
         self.assertSetSelect(ObjectSet, self.cube.edges[4:6], self.sphere)
-    
+
     def test_SelectionSet_singleObject(self):
         self.assertSetSelect(SelectionSet, self.cube)
         
@@ -1773,6 +1777,24 @@ class testCase_sets(TestCaseExtended):
 
     def test_SelectionSet_nestedSets(self):
         self.assertSetSelect(SelectionSet, self.set)
+        
+    def test_ObjectSet_len(self):
+        mySet = sets(name='mySet', empty=True)
+        self.assertEqual(len(mySet), 0)
+        mySet.add('persp')
+        self.assertEqual(len(mySet), 1)
+        mySet.add('perspShape')
+        self.assertEqual(len(mySet), 2)
+    
+    def test_SelectionSet_len(self):
+        mySet = SelectionSet([])
+        self.assertEqual(len(mySet), 0)
+        mySet.add('persp')
+        self.assertEqual(len(mySet), 1)
+        mySet.add('perspShape')
+        self.assertEqual(len(mySet), 2)
+        
+
         
 #class testCase_0_7_compatabilityMode(unittest.TestCase):
 #    # Just used to define a value that we know won't be stored in
@@ -2044,6 +2066,74 @@ class testCase_rename(TestCaseExtended):
         self.assertEqual('sphere3', sphere1.nodeName())
         self.assertEqual('myNS:sphere4', sphere2.nodeName())
 
+class testCase_renderLayers(TestCaseExtended):
+    def setUp(self):
+        pm.newFile(f=1)
+        self.cube = pm.polyCube()[0]
+        self.sphere = pm.polySphere()[0]
+        pm.select(None)
+        self.layer = pm.createRenderLayer(name="diffuse")
+        
+    def test_add_single(self):
+        self.assertEqual(self.layer.listMembers(), [])
+        self.layer.addMembers(self.cube)
+        self.assertEqual(self.layer.listMembers(), [self.cube])
+        self.layer.addMembers(self.sphere)
+        self.assertEqual(set(self.layer.listMembers()),
+                         set([self.cube, self.sphere]))
+
+    def test_add_multi(self):
+        self.assertEqual(self.layer.listMembers(), [])
+        self.layer.addMembers([self.cube, self.sphere])
+        self.assertEqual(set(self.layer.listMembers()),
+                         set([self.cube, self.sphere]))
+        
+    def test_remove_single(self):
+        self.layer.addMembers([self.cube, self.sphere])
+        self.assertEqual(set(self.layer.listMembers()),
+                         set([self.cube, self.sphere]))
+        self.layer.removeMembers(self.sphere)
+        self.assertEqual(self.layer.listMembers(), [self.cube])
+        self.layer.removeMembers(self.cube)
+        self.assertEqual(self.layer.listMembers(), [])
+        
+    def test_remove_multi(self):
+        self.layer.addMembers([self.cube, self.sphere])
+        self.assertEqual(set(self.layer.listMembers()),
+                         set([self.cube, self.sphere]))
+        self.layer.removeMembers([self.sphere, self.cube])
+        self.assertEqual(self.layer.listMembers(), [])
+        
+    def test_setCurrent(self):
+        self.assertEqual(pm.nt.RenderLayer.defaultRenderLayer(),
+                         pm.nt.RenderLayer.currentLayer())
+        self.layer.setCurrent()
+        self.assertEqual(self.layer, pm.nt.RenderLayer.currentLayer())
+        
+    def test_adjustments(self):
+        widthAttr = PyNode("defaultResolution.width")
+        self.assertEqual(self.layer.listAdjustments(), [])
+        self.layer.addAdjustments(widthAttr)
+        self.assertEqual(self.layer.listAdjustments(), ["defaultResolution.width"])
+        
+        origVal = widthAttr.get()
+        adjVal = origVal + 5
+        
+        self.layer.setCurrent()
+        widthAttr.set(adjVal)
+        self.assertEqual(widthAttr.get(), adjVal)
+        pm.nt.RenderLayer.defaultRenderLayer().setCurrent()
+        self.assertEqual(widthAttr.get(), origVal)
+        self.layer.setCurrent()
+        self.assertEqual(widthAttr.get(), adjVal)
+        
+        self.layer.removeAdjustments(widthAttr)
+        self.assertEqual(self.layer.listAdjustments(), [])
+        self.assertEqual(widthAttr.get(), origVal)
+        pm.nt.RenderLayer.defaultRenderLayer().setCurrent()
+        self.assertEqual(widthAttr.get(), origVal)
+        
+        
 #def test_units():
 #    startLinear = currentUnit( q=1, linear=1)
 #    

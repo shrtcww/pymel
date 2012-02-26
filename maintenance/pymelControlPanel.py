@@ -349,7 +349,6 @@ class ClassFrame(object):
                 unpairedForm.attachForm( unpairedScroll, 'left', 5 )
                 unpairedForm.attachForm( unpairedScroll, 'right', 5 )
                 unpairedForm.attachForm( unpairedScroll, 'bottom', 5 )
-
         return self.frame
     
 
@@ -887,7 +886,8 @@ def getClassHierarchy( className ):
                     apiClassName = None
                     
             yield cls.__name__, apiClassName    
-
+    else:
+        logger.warning( "could not find class %s" % (className) )
                
 
 
