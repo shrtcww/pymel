@@ -1,3 +1,206 @@
+.. currentmodule:: pymel
+
+**********
+What's New
+**********
+
+==================================
+Version 1.0.7
+==================================
+
+----------------------------------
+Changes
+----------------------------------
+
+- general: MultiAttrs now support __delitem__
+- uitype: use PySide in toQtObject methods if no PyQt
+- language: added mel.globals alias for melGlobals
+- core: improve API undo callbacks
+- system: saveFile resets name if filename is messed up
+- system: make loadReference give more informative error if ref not loaded
+- system: optimized FileReference.__init__
+- system: switched file cmd used by iterReferences for more stable referenceQuery
+- docs: improved the look of the docs
+- util.arrays: Array objects now explicitly unhashable, added totuple
+- utils.path: allow the pattern argument for various methods to take a compiled regular expression pattern.
+
+----------------------------------
+Additions
+----------------------------------
+
+- language: added Env.playbackTimes convenience property for getting/setting all timeline values at once
+- allapi: added example usage to SafeApiPtr
+- general: added Attribute.iterDescendants
+- system: added mode and caseSensitive args to Translator.fromExtension
+- nodetypes: added topLevel and descendants kwargs to DependNode.listAttr
+- nodetypes: added Camera.isDisplayGateMask method
+- nodetypes: added closestPolygon keyword arg to getUVAtPoint
+- uitypes: added toPySide* functions for casting maya UI strings to PySide objects
+- pymel.conf: added option to source initialPlugins.mel
+- pymel.conf: added option to prefer PyQt4 or PySide
+- util.arguments: added support for sets, useChangedKeys to compareCascadingDicts
+- util.common: added inMaya() func
+- stubs: make stub Mel.__getattr__ accept anything
+- stubs: added PySide stubs
+
+----------------------------------
+Bugfixes
+----------------------------------
+
+- system: fixed bug with referenceQuery which occured when editStrings and liveEdits flags are True
+- system: fixed bug with ReferenceEdit.remove() where self.rawEditData was referred to as a method instead of a property.
+- ipymel: pressing ctrl-c no longer quits maya
+- logging: fixed bug preventing logging menus from displaying
+
+
+==================================
+Version 1.0.6
+==================================
+
+----------------------------------
+Non-Backward Compatible Changes
+----------------------------------
+
+- joint.limitSwitchX/Y/Z: now return [bool, bool] when queried, just like the mel command, to indicate whether the limit is on for the min/max
+- joint.radius: now returns the float radius, instead of [radius]
+
+----------------------------------
+Changes
+----------------------------------
+
+- general: addAttr/setEnums now accept strings, lists, or dicts for setting enums
+- other: cast NameParser arguments to unicode
+- factories: issue deprecation warning for deprecated functions only when they're actually used
+
+----------------------------------
+Additions
+----------------------------------
+
+- added (functional) namespace method to Attribute, Component
+- general: added mute accessors to Attributes
+- system: provide ReferenceEdit.rawEditData property for getting faster unparsed access to reference edits
+- nodetypes: added stripUnderworld flag to DependNode.nodeName(), and default it to true.  This removes the underworld prefix (the node prior to ->) from nodeName().
+- ipymel: update for ipython 0.11
+- util.arguments: compareCascadingDicts can show which keys have been added (as opposed to just changed)
+- system: added workspace.expandName
+
+----------------------------------
+Bugfixes
+----------------------------------
+
+- general: for the keyframe command, the upper / lower limits substituted in for the "index" flag, when no upper/lower limits were given, are now correct; formerly, the behavior of index=":" would vary depending on where (in time) the first and last keyframes were
+- general: timerange flags (ie, keyframe(time=...), findKeyframe(time=...), etc) now provide correct results when no upper/lower limits given; formerly, the time=":" would vary depending on if / which objects were selected
+- animation: Joint.angleX/Y/Z and Joint.stiffnessX/Y/Z now work
+- nodetypes: Container.getParentContainer, Container.getRootTransform, and Character.getClipScheduler now all return None instead of raising a runtime error if no object was found
+- system: FileReference.fullNamespace and iterReferences/listReferences with namespaces=1 now handle situations where reference node itself is in a non-root namespace correctly
+- general: when instantiating PyNode from an MPlug, to get the PyNode for the node, create from the underlying mobject, not the name (which may not be unique)
+- animation: fix for Joint.getAngleX/Y/Z, .getStiffnessX/Y/Z; joint.radius no longer returns list
+- mel2py: numerous fixes / tweaks
+- system: handle situations where reference node itself is in a non-root namespace
+- system: FileReference.nodes fix when reference contains no nodes
+- general: duplicate - special-case workaround for duplicating a single underworld node with no children
+- general: fix for duplicate + non-unique names
+- general: duplicate - workaround for bug introduced in 2014
+- nodetypes: fix for getAllParents with underworld nodes
+- Upgrade path.py to version 5.0 from github (https://github.com/jaraco/path.py).  This fixes an issue with Maya2014, python 2.7.3, and Windows where path().isdir() raised an error.
+- general: cmds.group returns unique name in maya > 2014
+- fix for virtual classes
+- versions: parsing for 'Preview Release' format - from Dean Edmonds
+
+==================================
+Version 1.0.5
+==================================
+
+----------------------------------
+Non-Backward Compatible Changes
+----------------------------------
+
+- DagNode.isVisible:  has a new flag, checkOverride, which is on by default, and considers visibility override settings
+- referenceQuery/FileReference.getReferenceEdits: if only one of successfulEdits/failedEdits is given, and it is false, we now assume that the desire is to return the other type (and set that flag to true); formerly, this would result in NO edits being returned
+- parent no longer raises an error if setting an object's parent to it's current parent; this makes it behave similarly to the mel command, and to DagNode.setParent
+- renameFile now automatically sets the 'type' if none is supplied (helps avoid renaming a file to 'foo.ma', then saving it as 'mayaBinary')
+- general: 1D components have index() method: can no longer use string.index()
+- uitypes: make PyUI.parent return None instead of PyUI('')
+
+----------------------------------
+Changes
+----------------------------------
+
+- for maya versions >= 2012, creation of "ghost" plugin nodes no longer needed
+- general: change to Component to speed up len(PyNode('pCube1Shape').vtx)
+- general: parent and DagNode.setParent now share common codebase
+- general: when find unknown component type, default to just printing a warning and returning generic Component
+- general: demoted raiseLog warning about unknown component type to DEBUG
+- general: added uniqueObjExists function
+- general: speedup for string representation of complete MeshVertexFace
+- general: made listRelatives/listHistory/listConnections have same behavior for None and empty list
+- system: clarified doc not about removeReferenceEdits not erroring
+- system: FileReference.replaceWith - enable kwargs
+- system: renameFile automatically sets type
+- system: changed referenceQuery so when only one of successful/failed passed, other flag is opposite value
+- language: make catch take args/kwargs
+- nodetypes: attrDefaults - use MNodeClass in versions >= 2012, _GhostObjMaker otherwise
+- nodetypes: Transform.setRotation now takes args as EulerRotation, Quaternion, or iterable of 3 or 4 elements
+- nodetypes: isVisible checks overrideVisibility
+- stubs: catch more dict-like-objects; special case exclude for maya.precomp.precompmodule
+- stubs: create dummy data objects when safe; better handling of builtins
+- stubs: use static code analysis to decide whether to include a child module in a parent module's namespace
+- stubs: better representations for builtin data types
+- stubs: get all names in module, better 'import *' detection
+- plogging: added raiseLog func/method
+- plogging: small tweaks to way default ERRORLEVEL is set, and raiseLog is added onto loggers
+- ipymel: make sure stuff imported into global namespace in userSetup.py is available in IPython
+
+----------------------------------
+Additions
+----------------------------------
+
+- nodetypes: added stripNamespace option to DependNode.name
+- general: disconnectAttr - support for disconnecting only certain directions
+- general: MeshFace - added numVertices as alias for polygonVertexCount
+- general: added DiscreteComponent.totalSize method
+- general: added ParticleComponent class
+- other: added DependNodeName.nodeName (for compatibility with DagNodeName)
+- nodetypes: added DagNode.listComp
+- datatypes: added equivalentSpace
+- utilitytypes: proxyClass - added module kwarg to control __module__
+- system: added FileReference.parent()
+- system: listReferences - added loaded/unloaded kwargs
+- system: added UndoChunk context manager
+- system: Namespace.remove/.clean - added reparentOtherChildren kwarg
+- system: added support for regexps to path.listdir/.files/.dirs
+- system: added successful/failedEdits flags to FileReference.removeReferenceEdits
+- windows: confirmBox - added returnButton kwarg to force return of button label
+- plugins: added an example for creating plugin nodes
+- util.enum: added Enum.__eq__/__ne__
+- py2mel: added include/excludeFlagArgs
+- system: added proper hash function for FileReference
+
+----------------------------------
+Bugfixes
+----------------------------------
+
+- general: fix for potential crashes due to using cached/invalid MFn
+- general: fix pm.PyNode('pCube1.vtx[*]')[2] to work like like pm.PyNode('pCube1').vtx[2]
+- general: fix for HashableSlice comparison (fixes bug with component indexing)
+- general: Component - fixes for complete-component shortcut don't use with empty meshes don't use for subd components (including SubdUV) use ffd1LatticeShape.pt[*], not .pt[*][*][*]
+- general: SubdEdge - hack to avoid a maya bug which causes crash
+- language: MelGlobal.initVar now initializes in mel
+- language: remove annoying callback error spam; instead make info available in a log from Callback.printRecentError()
+- uitypes: fix for 2012 SP2 issue with objectTypeUI not working for windows with menu bars
+- nodetypes: Transform.setRotation - fix for setting with EulerRotation object and non-standard rotation order or unit
+- nodetypes: fix for ObjectSet.__len__
+- nodetypes: AnimLayer.getAttribute - query dagSetMembers.inputs() to get full/unique path
+- nodetypes: fix typo in name of NurbsCurve/Surface.controlVerts (not conrolVerts)
+- core: _pluginLoaded - added fix for addPluginPyNodes triggered on reference load (fix for 2012+ only)
+- core: fix erroneous 'could not find callback id' warnings
+- utilitytypes: universalmethod now has doc pulled from original func
+- util.conditions: bugfix for __ror__, added __str__
+- allapi: toApiObject - low-level fix for Nucleus attributes
+- startup: don't use fixMayapy2011SegFault in >= 2013, seg fault was addressed by Autodesk
+- stubs: fixes for objects with multiple aliases in a module
+- py2mel: bugfixes, bugfix for excludeFlagArgs
+
 ==================================
 Version 1.0.4
 ==================================
@@ -7,9 +210,9 @@ Changes
 ----------------------------------
 
 - core.uitypes: improved AETemplates to work when created from within a scripted plugin
-- tools.mel2py: now output exact same filename as input on Windows 
+- tools.mel2py: now output exact same filename as input on Windows
 - core.nodetypes: Transform.getRotation  - can get as euler or quaternion
-- extras: improved reliability of stub files (for pydev, wing, etc) 
+- extras: improved reliability of stub files (for pydev, wing, etc)
 - core: doing select([], replace=True) should clear selection
 - api.allapi: replace toMObjectName with MObjectName
 - core: namespace - root option is now False (for backward compatibility)
@@ -45,13 +248,13 @@ Bugfixes
 - core: _pluginLoaded callback now correctly triggered by importing
 - core:  fix promptForPath doesn't work for mode 1/100 due to testing for the existance of the path.
 - core.nodetypes: fix for DependNode.rename(preserveNamespace=True) when node in root namespace
-- core.nodetypes: fixed bug with RenderLayer.add/removeAdjustments
+- core.nodetypes: fixed bug with RenderLayer.added/removeAdjustments
 - core.nodetypes: fix for DagNode.getAllParents (and test)
 - core.nodetypes: fix for DependNode.hasAttr(checkShape=False)
 - core.nodetypes: fix for AnimCurve.addKeys (issue 234)
 - internal.startup: fix for error message when fail to import maya.cmds.about
 - core: fixed addAttr(q=1, dataType=1) so it does not error if non-dynamic attr
-- core: pythonToMelCmd - fix bug when flagInfo['args'] was not a class
+- core: pythonToMelCmd - fixed bug when flagInfo['args'] was not a class
 - core: pythonToMelCmd - fix for flags where numArgs > 1
 - maya.utils: formatGuiException - fix for, ie, IOError / OSError
 - updated 2012 caches to fix issue 243
@@ -95,7 +298,7 @@ Non-Backward Compatible Changes
 - skinCluster, tangentConstraint, poleVectorConstraint, and
   pointOnPolyConstraint commands now return a PyNode when creating, instead of a
   list with one item
-- skinCluster command / node's methods / flags for querying deformerTools, 
+- skinCluster command / node's methods / flags for querying deformerTools,
   influence, weightedInfluence now return PyNodes, not strings
 - Attribute.elements now returns an empty list instead of None
 - general: Attribute.affects/affected return empty list when affects returns None
@@ -117,13 +320,13 @@ Additions
 - Added isUsedAsColor method to Attribute class
 - Added wrapper for listSets function
 - Added method listSets to PyNode class
-- Add a folderButtonGrp
-- core.system: added Namespace.move
-- core.system: added Namespace.listNodes
+- Added a folderButtonGrp
+- system: added Namespace.move
+- system: added Namespace.listNodes
 - mel2py: python mel command now translated to pymel.python (ie, maya.cmds.python)
 - general: added Attribute.indexMatters
 - language: added animStart/EndTime to Env
-- system: add in a 'breadth'-first recursive search mode to iterReferences
+- system: added in a 'breadth'-first recursive search mode to iterReferences
 - general: added ability to set enum Attributes with string values (issue 35)
 - plogging: set logging level with PYMEL_LOGLEVEL env var
 - Added isRenderable() method to object set.
@@ -301,7 +504,7 @@ Non-Backward Compatible Changes
 - ``pymel.mayahook.mayautils.getMayaVersion(extension=True)`` replaced with ``pymel.versions.shortName()``
 - removed 0_7_compatibility_mode
 
-- removed deprecated and inapplicable string methods from , base of all PyNodes: 
+- removed deprecated and inapplicable string methods from , base of all PyNodes:
 
 - removed Smart Layout Creator in favor of 'with' statement support
 - ``DagNode.getParent()`` no longer accepts keyword arguments
@@ -408,7 +611,7 @@ Bugfixes
 ----------------------------------
 
 - fixed instantiation of PyNode from MPlug instance
-- fixed a bug where Maya version was incorrectly detected when Maya was installed to a custom location 
+- fixed a bug where Maya version was incorrectly detected when Maya was installed to a custom location
 - fixed bug where wrap of function which took multiple refs all pointed to same ``MScriptUtil``
 - fixed wrapping of unsigned ptr api types
 - fixed negative comp indices
@@ -469,8 +672,8 @@ Changes and Additions
 - new feature:  virtual subclasses.  allows the user to create their own subclasses which are returned by ``PyNode``
 - added ``v2009sp1`` and ``v2009sp1a`` to ``Version``
 - changed ``MelGlobals.__getitem__`` to raise a KeyError on missing global, instead of a typeError
-- ``util.path`` now supports regular expression filtering in addition to globs.  
-- moved ``moduleDir()`` from ``util`` to ``mayahook`` since it is explicitly for pymel.  
+- ``util.path`` now supports regular expression filtering in addition to globs.
+- moved ``moduleDir()`` from ``util`` to ``mayahook`` since it is explicitly for pymel.
 - ensured that all default plugins are loaded when creating the api cache so that we can avoid calculating those each time the plugins are loaded
 - added a new `errors` flag to recurseMayaScriptPath for controlling how to handle directory walking errors: warn or ignore
 - moved ``pwarnings`` to ensure that ``pymel.util`` is completely separated from maya
@@ -492,7 +695,7 @@ Bugfixes
 - fixed a bug in ``undoInfo()``
 - fixed a bug that was breaking ``mel2py``
 - fixed a bug with logging that was locking it to INFO level.  INFO is now the default, but it can be properly changed in ``pymel.conf``
-- fixed input casting of ``datatypes.Time`` 
+- fixed input casting of ``datatypes.Time``
 - bug fixes in error handling within path class
 - fixed issue 65: ``DependencyNode.listAttr()`` broken
 - made sure ``NameParse`` objects are stringified before fed to ``MFnDependencyNode.findPlug()``
@@ -512,7 +715,7 @@ Bugfixes
 - fixed a bug where selectionSets can't be selected
 - fixed a bug with ``sets()`` when it returns lists
 - fixed issue 76, where non-unique joint names were returned by ``pymel.joint`` and thus were unsuccessfully cast to ``nodetypes.Joint``
-- fixed issue 80, regading incorrect association of ``nodetypes.File`` with ``cmds.file.`` 
+- fixed issue 80, regading incorrect association of ``nodetypes.File`` with ``cmds.file.``
 - fixed a bug in ``connectAttr()`` that was preventing connection errors from being raised when the force flag was used
 
 

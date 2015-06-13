@@ -18,6 +18,7 @@ import inspect
 import sys
 import re
 import os
+import types
 
 import pymel.util as util
 import pymel.versions as versions
@@ -43,21 +44,21 @@ def _testDecorator(function):
     def newFunc(*args, **kwargs):
         print "wrapped function for %s" % function.__name__
         return function(*args, **kwargs)
-    newFunc.__name__ =  function.__name__
-    newFunc.__doc__ =  function.__doc__
+    newFunc.__name__ = function.__name__
+    newFunc.__doc__ = function.__doc__
     return newFunc
 
 
 def getCmdName(inFunc):
     '''Use in place of inFunc.__name__ when inFunc could be a maya.cmds cmd
-    
-    handles stubFuncs 
+
+    handles stubFuncs
     '''
     cmdName = inFunc.__name__
     if cmdName == 'stubFunc':
         sourceFile = inspect.getsourcefile(inFunc)
         if (isinstance(sourceFile, basestring) and
-                os.path.join('maya','app','commands') in sourceFile):
+                os.path.join('maya', 'app', 'commands') in sourceFile):
             # Here's where it gets tricky... this is a fairly big hack, highly
             # dependent on the exact implementation of maya.app.commands.stubFunc...
             freevars = inFunc.func_code.co_freevars
@@ -70,7 +71,7 @@ def getCmdName(inFunc):
             cmdName = inFunc.func_closure[freeVarIndex].cell_contents
     return cmdName
 
-def getMelRepresentation( args, recursionLimit=None, maintainDicts=True):
+def getMelRepresentation(args, recursionLimit=None, maintainDicts=True):
     """Will return a list which contains each element of the iterable 'args' converted to a mel-friendly representation.
 
     :Parameters:
@@ -88,7 +89,6 @@ def getMelRepresentation( args, recursionLimit=None, maintainDicts=True):
     if recursionLimit:
         recursionLimit -= 1
 
-
     if maintainDicts and util.isMapping(args):
         newargs = dict(args)
         argIterable = args.iteritems()
@@ -102,7 +102,7 @@ def getMelRepresentation( args, recursionLimit=None, maintainDicts=True):
         try:
             newargs[index] = value.__melobject__()
         except AttributeError:
-            if ( (not recursionLimit) or recursionLimit >= 0) and util.isIterable(value):
+            if ((not recursionLimit) or recursionLimit >= 0) and util.isIterable(value):
                 # ...otherwise, recurse if not at recursion limit and  it's iterable
                 newargs[index] = getMelRepresentation(value, recursionLimit, maintainDicts)
     if isList:
@@ -114,22 +114,22 @@ def addWrappedCmd(cmdname, cmd=None):
     if cmd is None:
         cmd = getattr(maya.cmds, cmdname)
 
-    #if cmd.__name__ == 'dummyFunc': print cmdname
+    # if cmd.__name__ == 'dummyFunc': print cmdname
 
     def wrappedCmd(*args, **kwargs):
         # we must get the cmd each time, because maya delays loading of functions until they are needed.
         # if we don't reload we'll keep the dummyFunc around
         new_cmd = getattr(maya.cmds, cmdname)
-        #print args, kwargs
+        # print args, kwargs
         # convert args to mel-friendly representation
         new_args = getMelRepresentation(args)
 
         # flatten list. this is necessary for list of components.  see Issue 71.  however, be sure that it's not an empty list/tuple
-        if len(new_args) == 1 and util.isIterable(new_args[0]) and len(new_args[0]): #isinstance( new_args[0], (tuple, list) ):
+        if len(new_args) == 1 and util.isIterable(new_args[0]) and len(new_args[0]):  # isinstance( new_args[0], (tuple, list) ):
             new_args = new_args[0]
 
         new_kwargs = getMelRepresentation(kwargs)
-        #print new_args, new_kwargs
+        # print new_args, new_kwargs
         try:
             res = new_cmd(*new_args, **new_kwargs)
         except objectErrorType, e:
@@ -147,26 +147,52 @@ def addWrappedCmd(cmdname, cmd=None):
         # however, for UI's in particular, people use the edit command to get a pymel class for existing objects.
         # return None when we get an empty string
         try:
-            if res=='' and kwargs.get('edit', kwargs.get('e', False) ):
+            if res == '' and kwargs.get('edit', kwargs.get('e', False)):
                 return None
         except AttributeError:
             pass
         return res
 
-    wrappedCmd.__doc__ = cmd.__doc__
-
     oldname = getattr(cmd, '__name__', None)
     if isinstance(oldname, str):
         # Don't use cmd.__name__, as this could be 'stubFunc'
-        wrappedCmd.__name__ = getCmdName(cmd)
+        newname = getCmdName(cmd)
     else:
-        wrappedCmd.__name__ = str(cmdname)
+        newname = str(cmdname)
+
+    old_code = wrappedCmd.func_code
+    # want to change the name, not just of the func, but of the underlying
+    # code object - this makes it much easier to get useful information when
+    # using cProfile
+    # unfortunately, this isn't easy - have to get hacky...
+    # ...we could do it with a big string and exec, but then we'd lose both
+    # syntax highlighting, and file + lineno info...
+    new_code = types.CodeType(old_code.co_argcount,
+                              old_code.co_nlocals,
+                              old_code.co_stacksize,
+                              old_code.co_flags,
+                              old_code.co_code,
+                              old_code.co_consts,
+                              old_code.co_names,
+                              old_code.co_varnames,
+                              old_code.co_filename,
+                              str('%s_wrapped' % cmdname),  # unicode no good
+                              old_code.co_firstlineno,
+                              old_code.co_lnotab,
+                              old_code.co_freevars,
+                              old_code.co_cellvars)
+    wrappedCmd = types.FunctionType(new_code,
+                                    wrappedCmd.func_globals,
+                                    str(newname),  # unicode no good
+                                    wrappedCmd.func_defaults,
+                                    wrappedCmd.func_closure)
+    wrappedCmd.__doc__ = cmd.__doc__
 
     # for debugging, to make sure commands got wrapped...
     #wrappedCmd = _testDecorator(wrappedCmd)
 
     # so that we can identify that this is a wrapped maya command
-    setattr( _thisModule, cmdname, wrappedCmd )
+    setattr(_thisModule, cmdname, wrappedCmd)
     #globals()[cmdname] = wrappedCmd
 
 def removeWrappedCmd(cmdname):
@@ -178,6 +204,3 @@ def removeWrappedCmd(cmdname):
 def addAllWrappedCmds():
     for cmdname, cmd in inspect.getmembers(maya.cmds, callable):
         addWrappedCmd(cmdname, cmd)
-
-
-

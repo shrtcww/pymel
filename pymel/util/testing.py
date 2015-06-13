@@ -21,7 +21,7 @@ def doctestFriendly(func):
     def prepForDoctest(*args, **kwargs):
         result = None
         if (sys.displayhook != sys.__displayhook__
-            or sys.stdout != sys.__stdout__):
+                or sys.stdout != sys.__stdout__):
             save_displayhook = sys.displayhook
             # reset doctest.master, so we don't get spammed with
             # *** DocTestRunner.merge: '...' in both testers; summing outcomes.
@@ -47,7 +47,7 @@ def doctestFriendly(func):
             result = func(*args, **kwargs)
         return result
     return prepForDoctest
-        
+
 @doctestFriendly
 def doctestobj(*args, **kwargs):
     """
@@ -62,73 +62,75 @@ def doctestmod(*args, **kwargs):
     """
     return doctest.testmod(*args, **kwargs)
 
-#def isDocTestable(path):
+# def isDocTestable(path):
 #    finder = moduleFinder.ModuleFinder()
 #    finder.find_all_submodules(path)
 
 class MayaTestRunner(TextTestRunner):
+
     def __init__(self, stream=sys.stdout, descriptions=True, verbosity=2):
         super(MayaTestRunner, self).__init__(stream=stream,
                                              descriptions=descriptions,
                                              verbosity=verbosity)
-    
+
     @doctestFriendly
     def run(self, *args, **kwargs):
         super(MayaTestRunner, self).run(*args, **kwargs)
-    
+
 def addFuncToModule(func, module):
     if not hasattr(module, func.__name__):
-        setattr(module, func.__name__, func) 
+        setattr(module, func.__name__, func)
 
 def startsWithDoubleUnderscore(testcase):
     return testcase.__name__.startswith("__")
-    
-def setupUnittestModule(moduleName, suiteFuncName = SUITE_FUNC_NAME, testMainName=TEST_MAIN_FUNC_NAME,
+
+def setupUnittestModule(moduleName, suiteFuncName=SUITE_FUNC_NAME, testMainName=TEST_MAIN_FUNC_NAME,
                         filterTestCases=startsWithDoubleUnderscore):
     """
     Add basic unittest functions to the given module.
-     
+
     Will add a 'suite' function that returns a suite object for the module,
     and a 'test_main' function which runs the suite.
-    
+
     If a filterTestCases function is given, then this is applied to all objects in the module which
     inherit from TestCase, and if it returns true, removes them from the module dictionary,
     so that they are not automatically loaded.
-    
+
     By default, it will filter all TestCases whose name starts with a double-underscore, ie
-    '__AbstractTestCase' 
-    
+    '__AbstractTestCase'
+
     Will then call 'test_main' if moduleName == '__main__'
     """
     module = sys.modules[moduleName]
+
     def theSuite():
         return findTestCases(module)
     theSuite.__name__ = suiteFuncName
-    
+
     def test_main():
         return MayaTestRunner().run(theSuite())
     test_main.__name__ = testMainName
-    
+
     addFuncToModule(theSuite, module)
     addFuncToModule(test_main, module)
-    
+
     for name in dir(module):
         obj = getattr(module, name)
         if (isinstance(obj, (type, types.ClassType)) and
-            issubclass(obj, TestCase) and
-            filterTestCases and
-            filterTestCases(obj)):
+                issubclass(obj, TestCase) and
+                filterTestCases and
+                filterTestCases(obj)):
             delattr(module, name)
-    
+
     if moduleName == '__main__':
         test_main()
 
 # Make this import / initialize pymel!
-#class MayaTestRunner(TextTestRunner):
+# class MayaTestRunner(TextTestRunner):
 #    '''
 #    Test runner for unittests that require maya.
 #    '''
-#    
+#
 #    # For now, just calls standard TextTestRunner with different defaults
 #    def __init__
 
@@ -136,20 +138,20 @@ class TestCaseExtended(TestCase):
     # Set this to True if you want to create a TestCase that you DON'T
     # want run (ie, an abstract class you wish to derive from, etc)
     DO_NOT_LOAD = False
-    
-    #def addTestFunc(self, function):
+
+    # def addTestFunc(self, function):
     def assertNoError(self, function, *args, **kwargs):
         try:
             function(*args, **kwargs)
         except:
             self.fail("Exception raised:\n%s" % traceback.format_exc())
-    
+
     def assertIteration(self, iterable, expectedResults,
                         orderMatters=True,
                         onlyMembershipMatters=False):
         """
         Asserts that the iterable yields the expectedResults.
-        
+
         'expectedResults' should be a sequence of items, where each item matches
         an item returned while iterating 'iterable'.
 
@@ -157,7 +159,7 @@ class TestCaseExtended(TestCase):
         iterable are containined within expectedResults, and every member of
         expectedResults is returned by iterable at least once, the test will
         pass. (Ie, onlyMembershipMatters will override orderMatters.)
-        
+
         If onlyMembershipMatters is False and orderMatters is True, then the
         items in expectedResults should match the order of items returned by the
         iterable.
@@ -190,14 +192,14 @@ class TestCaseExtended(TestCase):
 
         #################################################
 
-        
-        
+
+
         #################################################
         ## orderMatters=True, onlyMembershipMatters=True
         #################################################
 
         # will PASS - if onlyMembershipMatters, duplicate entries are ignored
-        assertIteration( "foo", ['f', 'o', 'o'], onlyMemberShipMatters=True)        
+        assertIteration( "foo", ['f', 'o', 'o'], onlyMemberShipMatters=True)
 
         #will PASS
         assertIteration( "foo", ['f', 'o'], onlyMemberShipMatters=True)
@@ -209,17 +211,17 @@ class TestCaseExtended(TestCase):
         assertIteration( "foo", ['f', 'o', 'x'], onlyMemberShipMatters=True)
 
         # will PASS - order irrelevant
-        assertIteration( "foo", ['o', 'f', 'o'], onlyMemberShipMatters=True)        
+        assertIteration( "foo", ['o', 'f', 'o'], onlyMemberShipMatters=True)
         #################################################
 
 
-        
+
         #################################################
         ## orderMatters=False, onlyMembershipMatters=False
         #################################################
 
         # will PASS
-        assertIteration( "foo", ['f', 'o', 'o'], orderMatters=False)        
+        assertIteration( "foo", ['f', 'o', 'o'], orderMatters=False)
 
         #will FAIL - second 'o' not in expectedResults
         assertIteration( "foo", ['f', 'o'], orderMatters=False)
@@ -231,7 +233,7 @@ class TestCaseExtended(TestCase):
         assertIteration( "foo", ['o', 'f', 'o'], orderMatters=False)
         #################################################
         """
-        
+
         expectedResults = list(expectedResults)
         if onlyMembershipMatters:
             unmatchedResults = set(expectedResults)
@@ -240,7 +242,7 @@ class TestCaseExtended(TestCase):
         for item in iterable:
             notInExpectedResultsFormat = \
                 "iterable '%s' contained item '%s', not found in %s '%s'"
-                
+
             if onlyMembershipMatters:
                 self.assertTrue(item in expectedResults,
                                 notInExpectedResultsFormat % (iterable, item, "expectedResults", expectedResults))
@@ -254,41 +256,42 @@ class TestCaseExtended(TestCase):
                     self.assertEqual(item, unmatchedResults[0], "iterable returned '%s' when '%s' was expected" % (item, unmatchedResults[0]))
             if item in unmatchedResults:
                 unmatchedResults.remove(item)
-            
+
         message = "iterable '%s' did not contain expected item(s): %s" % (iterable, [str(x) for x in unmatchedResults])
         self.assertEqual(len(unmatchedResults), 0, message)
-        
+
     def assertVectorsEqual(self, v1, v2, places=5):
         for p1, p2 in zip(v1, v2):
             try:
                 self.assertAlmostEqual(p1, p2, places=places)
             except AssertionError:
-                self.fail('%r not equal to %r to %s places' % (v1, v2, places))     
+                self.fail('%r not equal to %r to %s places' % (v1, v2, places))
 
 
 # TODO: move to util.math?
 def permutations(sequence, length=None):
     """Given a sequence, will return an iterator over the possible permutations.
-    
+
     If length is 'None', the permutations will default to having the same length
     as the sequence; otherwise, the returned permtuations will have the given length.
-    
+
     Note that every element in the sequence is considered unique, so that there may be
     'duplicate' permutations if there are duplicate elements in seq, ie:
-    
+
     perumutations("aa") -> ['a', 'a'] and ['a', 'a']
     """
-    
+
     if length is None:
         length = len(sequence)
     elif length < 0 or length > len(sequence):
         raise ValueError("Permutation length '%i' invalid for %s" % (length, sequence))
-        
-    if length==0: yield []
-    
+
+    if length == 0:
+        yield []
+
     else:
         for i in xrange(len(sequence)):
-            for subpermutation in permutations(sequence[:i] + sequence[i+1:], length - 1):
+            for subpermutation in permutations(sequence[:i] + sequence[i + 1:], length - 1):
                 yield [sequence[i]] + subpermutation
 
 
@@ -297,25 +300,26 @@ def isOneToOne(dict):
     Tests if the given dictionary is one to one (if dict[x]==dict[y], x==y)
     """
     return len(set(dict.itervalues())) == len(dict)
-                
+
 def isEquivalenceRelation(inputs, outputs, dict):
     """
     Tests if the given dictionary defines an equivalence relation from between inputs and outputs.
-    
+
     Technically, tests if the dict is bijective: ie, one-to-one (if dict[x]==dict[y], x==y) and
     onto (for every y in outputs, exists an x such that dict[x] == y)
     """
     inputs = set(inputs)
     output = set(outputs)
     if len(inputs) == len(outputs) and \
-        set(dict.iterkeys()) == inputs and \
-        set(dict.itervalues()) == outputs:
-        
+            set(dict.iterkeys()) == inputs and \
+            set(dict.itervalues()) == outputs:
+
         return True
     else:
         return False
 
 class SuiteFromModule(TestSuite):
+
     def __init__(self, module, testImport=True):
         """
         Set testImport to True to have the suite automatically contain a test case that
@@ -323,14 +327,14 @@ class SuiteFromModule(TestSuite):
         """
         super(SuiteFromModule, self).__init__()
         self._importError = None
-        
+
         if isinstance(module, basestring):
             self.moduleName = module
             self.module = self._importTestModule()
         elif isinstance(module, types.ModuleType):
             self.moduleName = module.__name__
             self.module = module
-                
+
         if self._importError is None and self.module:
             try:
                 importedSuite = self._importSuite()
@@ -338,10 +342,10 @@ class SuiteFromModule(TestSuite):
                     self._importError = "Imported suite (from %s.%s) had no test cases" % (self.module.__name__, self.suiteFuncName)
             except:
                 self._importError = traceback.format_exc()
-            
+
         if not self._importError:
             self.addTest(importedSuite)
-        
+
         if testImport:
             self.addTest(self._makeImportTestCase())
 
@@ -349,7 +353,7 @@ class SuiteFromModule(TestSuite):
         module = None
         try:
             module = __import__(self.moduleName)
-            
+
             # if moduleName is 'package.module', __import__ returns package!
             packagePath = self.moduleName.split('.')
             for subModule in packagePath[1:]:
@@ -364,13 +368,15 @@ class SuiteFromModule(TestSuite):
 
     def _makeImportTestCase(suite_self):
         class TestSuiteImport(TestCaseExtended):
+
             def runTest(testCase_self):
                 testCase_self.assertTrue(suite_self._importError is None, "Failed to create a test suite from module '%s':\n%s" % (suite_self.moduleName, suite_self._importError))
             runTest.__doc__ = """Try to create a %s from module '%s'""" % (suite_self.__class__.__name__, suite_self.moduleName)
         return TestSuiteImport()
 
-    
+
 class UnittestSuiteFromModule(SuiteFromModule):
+
     def __init__(self, moduleName, suiteFuncName=SUITE_FUNC_NAME, **kwargs):
         self.suiteFuncName = suiteFuncName
         super(UnittestSuiteFromModule, self).__init__(moduleName, **kwargs)
@@ -388,11 +394,11 @@ class UnittestSuiteFromModule(SuiteFromModule):
         if not theSuite:
             theSuite = TestSuite()
         return theSuite
-        
 
 
 class DoctestSuiteFromModule(SuiteFromModule):
-    def __init__(self, moduleName, packageRecurse=False, alreadyRecursed = None, **kwargs):
+
+    def __init__(self, moduleName, packageRecurse=False, alreadyRecursed=None, **kwargs):
         if alreadyRecursed is None:
             alreadyRecursed = []
         self.alreadyRecursed = alreadyRecursed
@@ -401,27 +407,27 @@ class DoctestSuiteFromModule(SuiteFromModule):
 
     def _importSuite(self):
         theSuite = None
-            
+
         if self.module not in self.alreadyRecursed:
             self.alreadyRecursed.append(self.module)
             try:
                 theSuite = doctest.DocTestSuite(self.module)
             except ValueError:
                 # will raise a value error if it found no tests...
-                theSuite = None            
-             
+                theSuite = None
+
             if self.packageRecurse:
                 # if the module is a pacakge, for each directory in it's search path...
                 for path in getattr(self.module, '__path__', []):
-                    
+
                     # ...add all submodules!
                     for name in os.listdir(path):
                         newPath = os.path.join(path, name)
                         basename, ext = os.path.splitext(name)
-                        if ( (os.path.isfile(newPath) and ext in ('.py', '.pyo', '.pyc') and basename != '__init__')
-                             or (os.path.isdir(newPath) and os.path.isfile(os.path.join(newPath, '__init__.py'))) ):
+                        if ((os.path.isfile(newPath) and ext in ('.py', '.pyo', '.pyc') and basename != '__init__')
+                                or (os.path.isdir(newPath) and os.path.isfile(os.path.join(newPath, '__init__.py')))):
                             newModuleName = self.moduleName + "." + basename
-                            
+
                             newSuite = DoctestSuiteFromModule(newModuleName, testImport=False, packageRecurse=True, alreadyRecursed=self.alreadyRecursed)
                             if newSuite.countTestCases():
                                 theSuite.addTest(newSuite)

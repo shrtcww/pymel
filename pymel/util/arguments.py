@@ -4,23 +4,29 @@ These utility functions can be used by other util modules and are imported in ut
 """
 
 from collections import deque as _deque
-import sys, operator, itertools
+import sys
+import operator
+import itertools
 
 from utilitytypes import ProxyUnicode
 
 # some functions used to need to make the difference between strings and non-string iterables when PyNode where unicode derived
 # doing a hasattr(obj, '__iter__') test will fail for objects that implement __getitem__, but not __iter__, so try iter(obj)
-def isIterable( obj ):
+def isIterable(obj):
     """
     Returns True if an object is iterable and not a string or ProxyUnicode type, otherwise returns False.
 
     :rtype: bool"""
-    if isinstance(obj,basestring): return False
-    elif isinstance(obj,ProxyUnicode): return False
+    if isinstance(obj, basestring):
+        return False
+    elif isinstance(obj, ProxyUnicode):
+        return False
     try:
         iter(obj)
-    except TypeError: return False
-    else: return True
+    except TypeError:
+        return False
+    else:
+        return True
 
 # consider only ints and floats numeric
 def isScalar(obj):
@@ -28,7 +34,7 @@ def isScalar(obj):
     Returns True if an object is a number or complex type, otherwise returns False.
 
     :rtype: bool"""
-    return operator.isNumberType(obj) and not isinstance(obj,complex)
+    return operator.isNumberType(obj) and not isinstance(obj, complex)
 
 # TODO : this is unneeded as operator provides it, can call directly to operator methods
 def isNumeric(obj):
@@ -39,14 +45,14 @@ def isNumeric(obj):
     """
     return operator.isNumberType(obj)
 
-def isSequence( obj ):
+def isSequence(obj):
     """
     same as `operator.isSequenceType`
 
     :rtype: bool"""
     return operator.isSequenceType(obj)
 
-def isMapping( obj ):
+def isMapping(obj):
     """
     Returns True if an object is a mapping (dictionary) type, otherwise returns False.
 
@@ -55,15 +61,15 @@ def isMapping( obj ):
     :rtype: bool"""
     return operator.isMappingType(obj)
 
-clsname = lambda x:type(x).__name__
+clsname = lambda x: type(x).__name__
 
-def convertListArgs( args ):
+def convertListArgs(args):
     if len(args) == 1 and isIterable(args[0]):
         return tuple(args[0])
     return args
 
 
-def expandArgs( *args, **kwargs ) :
+def expandArgs(*args, **kwargs):
     """
     'Flattens' the arguments list: recursively replaces any iterable argument in *args by a tuple of its
     elements that will be inserted at its place in the returned arguments.
@@ -119,74 +125,76 @@ def expandArgs( *args, **kwargs ) :
     limit = kwargs.get('limit', sys.getrecursionlimit())
     postorder = kwargs.get('postorder', False)
     breadth = kwargs.get('breadth', False)
-    if tpe=='list' or tpe==list :
-        def _expandArgsTest(arg): return type(arg)==list
-    elif tpe=='all' :
-        def _expandArgsTest(arg): return isIterable(arg)
-    else :
+    if tpe == 'list' or tpe == list:
+        def _expandArgsTest(arg):
+            return type(arg) == list
+    elif tpe == 'all':
+        def _expandArgsTest(arg):
+            return isIterable(arg)
+    else:
         raise ValueError, "unknown expand type=%s" % str(tpe)
 
-    if postorder :
-        return postorderArgs (limit, _expandArgsTest, *args)
-    elif breadth :
-        return breadthArgs (limit, _expandArgsTest, *args)
-    else :
-        return preorderArgs (limit, _expandArgsTest, *args)
+    if postorder:
+        return postorderArgs(limit, _expandArgsTest, *args)
+    elif breadth:
+        return breadthArgs(limit, _expandArgsTest, *args)
+    else:
+        return preorderArgs(limit, _expandArgsTest, *args)
 
-def preorderArgs (limit=sys.getrecursionlimit(), testFn=isIterable, *args) :
+def preorderArgs(limit=sys.getrecursionlimit(), testFn=isIterable, *args):
     """ returns a list of a preorder expansion of args """
-    stack = [(x,0) for x in args]
+    stack = [(x, 0) for x in args]
     result = _deque()
-    while stack :
+    while stack:
         arg, level = stack.pop()
-        if testFn(arg) and level<limit :
-            stack += [(x,level+1) for x in arg]
-        else :
+        if testFn(arg) and level < limit:
+            stack += [(x, level + 1) for x in arg]
+        else:
             result.appendleft(arg)
 
     return tuple(result)
 
-def postorderArgs (limit=sys.getrecursionlimit(), testFn=isIterable, *args) :
+def postorderArgs(limit=sys.getrecursionlimit(), testFn=isIterable, *args):
     """ returns a list of  a postorder expansion of args """
     if len(args) == 1:
         return (args[0],)
     else:
-        deq = _deque((x,0) for x in args)
+        deq = _deque((x, 0) for x in args)
         stack = []
         result = []
-        while deq :
+        while deq:
             arg, level = deq.popleft()
-            if testFn(arg) and level<limit :
-                deq = _deque( [(x, level+1) for x in arg] + list(deq))
-            else :
-                if stack :
-                    while stack and level <= stack[-1][1] :
+            if testFn(arg) and level < limit:
+                deq = _deque([(x, level + 1) for x in arg] + list(deq))
+            else:
+                if stack:
+                    while stack and level <= stack[-1][1]:
                         result.append(stack.pop()[0])
                     stack.append((arg, level))
-                else :
+                else:
                     stack.append((arg, level))
-        while stack :
+        while stack:
             result.append(stack.pop()[0])
 
         return tuple(result)
 
-def breadthArgs (limit=sys.getrecursionlimit(), testFn=isIterable, *args) :
+def breadthArgs(limit=sys.getrecursionlimit(), testFn=isIterable, *args):
     """ returns a list of a breadth first expansion of args """
-    deq = _deque((x,0) for x in args)
+    deq = _deque((x, 0) for x in args)
     result = []
-    while deq :
+    while deq:
         arg, level = deq.popleft()
-        if testFn(arg) and level<limit :
-            for a in arg :
-                deq.append ((a, level+1))
-        else :
+        if testFn(arg) and level < limit:
+            for a in arg:
+                deq.append((a, level + 1))
+        else:
             result.append(arg)
 
     return tuple(result)
 
 # Same behavior as expandListArg but implemented as an Python iterator, the recursieve approach
 # will be more memory efficient, but slower
-def iterateArgs( *args, **kwargs ) :
+def iterateArgs(*args, **kwargs):
     """ Iterates through all arguments list: recursively replaces any iterable argument in *args by a tuple of its
     elements that will be inserted at its place in the returned arguments.
 
@@ -240,108 +248,110 @@ def iterateArgs( *args, **kwargs ) :
     limit = kwargs.get('limit', sys.getrecursionlimit())
     postorder = kwargs.get('postorder', False)
     breadth = kwargs.get('breadth', False)
-    if tpe=='list' or tpe==list :
-        def _iterateArgsTest(arg): return type(arg)==list
-    elif tpe=='all' :
-        def _iterateArgsTest(arg): return isIterable(arg)
-    else :
+    if tpe == 'list' or tpe == list:
+        def _iterateArgsTest(arg):
+            return type(arg) == list
+    elif tpe == 'all':
+        def _iterateArgsTest(arg):
+            return isIterable(arg)
+    else:
         raise ValueError, "unknown expand type=%s" % str(tpe)
 
-    if postorder :
-        for arg in postorderIterArgs (limit, _iterateArgsTest, *args) :
+    if postorder:
+        for arg in postorderIterArgs(limit, _iterateArgsTest, *args):
             yield arg
-    elif breadth :
-        for arg in breadthIterArgs (limit, _iterateArgsTest, *args) :
+    elif breadth:
+        for arg in breadthIterArgs(limit, _iterateArgsTest, *args):
             yield arg
-    else :
-        for arg in preorderIterArgs (limit, _iterateArgsTest, *args) :
+    else:
+        for arg in preorderIterArgs(limit, _iterateArgsTest, *args):
             yield arg
 
-def preorderIterArgs (limit=sys.getrecursionlimit(), testFn=isIterable, *args) :
+def preorderIterArgs(limit=sys.getrecursionlimit(), testFn=isIterable, *args):
     """ iterator doing a preorder expansion of args """
-    if limit :
-        for arg in args :
-            if testFn(arg) :
-                for a in preorderIterArgs (limit-1, testFn, *arg) :
+    if limit:
+        for arg in args:
+            if testFn(arg):
+                for a in preorderIterArgs(limit - 1, testFn, *arg):
                     yield a
-            else :
+            else:
                 yield arg
-    else :
-        for arg in args :
+    else:
+        for arg in args:
             yield arg
 
-def postorderIterArgs (limit=sys.getrecursionlimit(), testFn=isIterable, *args) :
+def postorderIterArgs(limit=sys.getrecursionlimit(), testFn=isIterable, *args):
     """ iterator doing a postorder expansion of args """
-    if limit :
+    if limit:
         last = None
-        for arg in args :
-            if testFn(arg) :
-                for a in postorderIterArgs (limit-1, testFn, *arg) :
+        for arg in args:
+            if testFn(arg):
+                for a in postorderIterArgs(limit - 1, testFn, *arg):
                     yield a
-            else :
-                if last :
+            else:
+                if last:
                     yield last
                 last = arg
-        if last :
+        if last:
             yield last
-    else :
-        for arg in args :
+    else:
+        for arg in args:
             yield arg
 
-def breadthIterArgs (limit=sys.getrecursionlimit(), testFn=isIterable, *args) :
+def breadthIterArgs(limit=sys.getrecursionlimit(), testFn=isIterable, *args):
     """ iterator doing a breadth first expansion of args """
-    deq = _deque((x,0) for x in args)
-    while deq :
+    deq = _deque((x, 0) for x in args)
+    while deq:
         arg, level = deq.popleft()
-        if testFn(arg) and level<limit :
-            for a in arg :
-                deq.append ((a, level+1))
-        else :
+        if testFn(arg) and level < limit:
+            for a in arg:
+                deq.append((a, level + 1))
+        else:
             yield arg
 
-def preorder( iterable, testFn=isIterable, limit=sys.getrecursionlimit()):
+def preorder(iterable, testFn=isIterable, limit=sys.getrecursionlimit()):
     """ iterator doing a preorder expansion of args """
-    if limit :
-        for arg in iterable :
-            if testFn(arg) :
-                for a in preorderIterArgs (limit-1, testFn, *arg) :
+    if limit:
+        for arg in iterable:
+            if testFn(arg):
+                for a in preorderIterArgs(limit - 1, testFn, *arg):
                     yield a
-            else :
+            else:
                 yield arg
-    else :
-        for arg in iterable :
+    else:
+        for arg in iterable:
             yield arg
 
-def postorder( iterable, testFn=isIterable, limit=sys.getrecursionlimit()):
+def postorder(iterable, testFn=isIterable, limit=sys.getrecursionlimit()):
     """ iterator doing a postorder expansion of args """
-    if limit :
+    if limit:
         last = None
-        for arg in iterable :
-            if testFn(arg) :
-                for a in postorderIterArgs (limit-1, testFn, *arg) :
+        for arg in iterable:
+            if testFn(arg):
+                for a in postorderIterArgs(limit - 1, testFn, *arg):
                     yield a
-            else :
-                if last :
+            else:
+                if last:
                     yield last
                 last = arg
-        if last :
+        if last:
             yield last
-    else :
-        for arg in iterable :
+    else:
+        for arg in iterable:
             yield arg
 
-def breadth( iterable, testFn=isIterable, limit=sys.getrecursionlimit()):
+def breadth(iterable, testFn=isIterable, limit=sys.getrecursionlimit()):
     """ iterator doing a breadth first expansion of args """
-    deq = _deque((x,0) for x in iterable)
-    while deq :
+    deq = _deque((x, 0) for x in iterable)
+    while deq:
         arg, level = deq.popleft()
-        if testFn(arg) and level<limit :
-            for a in arg :
-                deq.append ((a, level+1))
-        else :
+        if testFn(arg) and level < limit:
+            for a in arg:
+                deq.append((a, level + 1))
+        else:
             yield arg
 
-def listForNone( res ):
+def listForNone(res):
     "returns an empty list when the result is None"
     if res is None:
         return []
@@ -358,9 +368,9 @@ def pairIter(sequence):
     If sequence has an odd number of items, the last item will not be returned in a pair.
     '''
     theIter = iter(sequence)
-    return itertools.izip(theIter,theIter)
+    return itertools.izip(theIter, theIter)
 
-def reorder( x, indexList=[], indexDict={} ):
+def reorder(x, indexList=[], indexDict={}):
     """
     Reorder a list based upon a list of positional indices and/or a dictionary of fromIndex:toIndex.
 
@@ -380,12 +390,12 @@ def reorder( x, indexList=[], indexDict={} ):
 
     for i, index in enumerate(indexList):
         if index is not None:
-            val = x.pop( index-popCount )
+            val = x.pop(index - popCount)
             assert index not in indexDict, indexDict
             indexValDict[i] = val
             popCount += 1
     for k, v in indexDict.items():
-        indexValDict[v] = x.pop(k-popCount)
+        indexValDict[v] = x.pop(k - popCount)
         popCount += 1
 
     newlist = []
@@ -394,23 +404,86 @@ def reorder( x, indexList=[], indexDict={} ):
             val = indexValDict[i]
         except KeyError:
             val = x.pop(0)
-        newlist.append( val )
+        newlist.append(val)
     return newlist
 
 class RemovedKey(object):
+
     def __init__(self, oldVal):
         self.oldVal = oldVal
-        
+
     def __eq__(self, other):
         return self.oldVal == other.oldVal
-    
-    def __ne__(self, other):
-        return self.oldVal != other.oldVal
 
-def compareCascadingDicts(dict1, dict2):
+    def __ne__(self, other):
+        return not self.oldVal == other.oldVal
+
+    def __repr__(self):
+        return '%s(%r)' % (type(self).__name__, self.oldVal)
+
+class AddedKey(object):
+
+    def __init__(self, newVal):
+        self.newVal = newVal
+
+    def __eq__(self, other):
+        return self.newVal == other.newVal
+
+    def __ne__(self, other):
+        return not self.newVal == other.newVal
+
+    def __repr__(self):
+        return '%s(%r)' % (type(self).__name__, self.newVal)
+
+class ChangedKey(object):
+
+    def __init__(self, oldVal, newVal):
+        self.oldVal = oldVal
+        self.newVal = newVal
+
+    def __eq__(self, other):
+        return self.newVal == other.newVal and self.oldVal == other.oldVal
+
+    def __ne__(self, other):
+        return not self.newVal == other.newVal
+
+    def __repr__(self):
+        return '%s(%r, %r)' % (type(self).__name__, self.oldVal, self.newVal)
+
+def compareCascadingDicts(dict1, dict2, encoding=None, useAddedKeys=False,
+                          useChangedKeys=False):
     '''compares two cascading dicts
 
-    :rtype: `tuple` of (both, only1, only2, differences)
+    Parameters
+    ----------
+    dict1 : dict, list, or tuple
+        the first object to compare
+    dict2 : dict, list, or tuple
+        the second object to compare
+    encoding : `str` or None or False
+        controls how comparisons are made when one value is a str, and one is a
+        unicode; if None, then comparisons are simply made with == (so ascii
+        characters will compare equally); if the value False, then unicode and
+        str are ALWAYS considered different - ie, u'foo' and 'foo' would not be
+        considered equal; otherwise, it should be the name of a unicode
+        encoding, which will be applied to the unicode string before comparing
+    useAddedKeys : bool
+        if True, then similarly to how 'RemovedKey' objects are used in the
+        returned diferences object (see the Returns section), 'AddedKey' objects
+        are used for keys which exist in dict2 but not in dict1; this allows
+        a user to distinguish, purely by inspecting the differences dict, which
+        keys are brand new, versus merely changed; mergeCascadingDicts will
+        treat AddedKey objects exactly the same as though they were their
+        contents - ie, useAddedKeys should make no difference to the behavior
+        of mergeCascadingDicts
+    useChangedKeys : bool
+        if True, then similarly to how 'RemovedKey' objects are used in the
+        returned diferences object (see the Returns section), 'ChangedKey'
+        objects are used for keys which exist in both dict1 and dict2, but with
+        different values
+
+    Returns
+    -------
     both : `set`
         keys that were present in both (non-recursively)
         (both, only1, and only2 should be discrete partitions of all the keys
@@ -429,79 +502,141 @@ def compareCascadingDicts(dict1, dict2):
         The return value should be such that if you do if you merge the
         differences with d1, you will get d2.
     '''
-    if isinstance(dict1, (list, tuple)):
-        dict1 = dict(enumerate(dict1))
-    if isinstance(dict2, (list, tuple)):
-        dict2 = dict(enumerate(dict2))
-    v1 = set(dict1)
-    v2 = set(dict2)
+    areSets = False
+    if isinstance(dict1, set) and isinstance(dict2, set):
+        areSets = True
+        v1 = dict1
+        v2 = dict2
+    else:
+        if isinstance(dict1, (list, tuple)):
+            dict1 = dict(enumerate(dict1))
+        if isinstance(dict2, (list, tuple)):
+            dict2 = dict(enumerate(dict2))
+        v1 = set(dict1)
+        v2 = set(dict2)
     both = v1 & v2
     only1 = v1 - both
     only2 = v2 - both
-    
-    recurseTypes = (dict, list, tuple)
-    differences = dict( (key, dict2[key]) for key in only2)
-    differences.update( (key, RemovedKey(dict1[key])) for key in only1 )
-    for key in both:
-        val1 = dict1[key]
-        val2 = dict2[key]
-        if val1 != val2:
-            if isinstance(val1, recurseTypes) and isinstance(val2, recurseTypes):
-                subDiffs = compareCascadingDicts(val1, val2)[-1]
-                differences[key] = subDiffs
+
+    if areSets:
+        if useAddedKeys:
+            differences = set(AddedKey(key) for key in only2)
+        else:
+            differences = set(only2)
+        differences.update(RemovedKey(key) for key in only1)
+    else:
+        recurseTypes = (dict, list, tuple, set)
+        strUnicode = set([str, unicode])
+        if useAddedKeys:
+            differences = dict((key, AddedKey(dict2[key])) for key in only2)
+        else:
+            differences = dict((key, dict2[key]) for key in only2)
+        differences.update((key, RemovedKey(dict1[key])) for key in only1)
+
+        for key in both:
+            val1 = dict1[key]
+            val2 = dict2[key]
+
+            areRecurseTypes = (isinstance(val1, recurseTypes)
+                               and isinstance(val2, recurseTypes))
+            if areRecurseTypes:
+                # we have a type that we need to recurse into, and either they
+                # compare not equal, or encoding is False (in which case they
+                # may compare python-equal, but could have some str-unicode
+                # equalities, so we need to verify for ourselves):
+                if encoding is False or val1 != val2:
+                    subDiffs = compareCascadingDicts(val1, val2,
+                                                     encoding=encoding,
+                                                     useAddedKeys=useAddedKeys,
+                                                     useChangedKeys=useChangedKeys)[-1]
+                    if subDiffs:
+                        differences[key] = subDiffs
             else:
-                differences[key] = val2
-    
+                # ok, we're not doing a recursive comparison...
+                isStrUnicode = (set([type(val1), type(val2)]) == strUnicode)
+                if isStrUnicode:
+                    # we have a string and a unicode - decide what to do based on
+                    # encoding setting
+                    if encoding is False:
+                        equal = False
+                    elif encoding is None:
+                        equal = (val1 == val2)
+                    else:
+                        if type(val1) == unicode:
+                            strVal = val2
+                            unicodeVal = val1
+                        else:
+                            strVal = val1
+                            unicodeVal = val2
+                        try:
+                            encoded = unicodeVal.encode(encoding)
+                        except UnicodeEncodeError:
+                            # if there's an encoding error, consider them
+                            # different
+                            equal = False
+                        else:
+                            equal = (encoded == strVal)
+                else:
+                    equal = (val1 == val2)
+
+                if not equal:
+                    if useChangedKeys:
+                        differences[key] = ChangedKey(val1, val2)
+                    else:
+                        differences[key] = val2
+
     return both, only1, only2, differences
 
-def mergeCascadingDicts( from_dict, to_dict, allowDictToListMerging=False,
-                         allowNewListMembers=False ):
+def mergeCascadingDicts(from_dict, to_dict, allowDictToListMerging=False,
+                        allowNewListMembers=False):
     """
     recursively update to_dict with values from from_dict.
-    
+
     if any entries in 'from_dict' are instances of the class RemovedKey,
     then the key containing that value will be removed from to_dict
-    
+
     if allowDictToListMerging is True, then if to_dict contains a list,
     from_dict can contain a dictionary with int keys which can be used to
     sparsely update the list.
-    
+
     if allowNewListMembers is True, and allowDictToListMerging is also True,
     then if merging an index into a list that currently isn't long enough to
     contain that index, then the list will be extended to be long enough (with
     None inserted in any intermediate indices)
-    
+
     Note: if using RemovedKey objects and allowDictToList merging, then only
     indices greater than all of any indices updated / added should be removed,
     because the order in which items are updated / removed is indeterminate.
     """
-    listMerge = allowDictToListMerging and isinstance(to_dict, list )
+    listMerge = allowDictToListMerging and isinstance(to_dict, list)
     if listMerge:
-        contains = lambda key: isinstance(key,int) and 0 <= key < len(to_dict)
+        contains = lambda key: isinstance(key, int) and 0 <= key < len(to_dict)
     else:
         contains = lambda key: key in to_dict
 
     for key, from_val in from_dict.iteritems():
-        #print key, from_val
+        # print key, from_val
         if contains(key):
             if isinstance(from_val, RemovedKey):
                 del to_dict[key]
                 continue
+            elif isinstance(from_val, (AddedKey, ChangedKey)):
+                from_val = from_val.newVal
             to_val = to_dict[key]
-            #if isMapping(from_val) and ( isMapping(to_val) or (allowDictToListMerging and isinstance(to_val, list )) ):
-            if hasattr(from_val, 'iteritems') and ( hasattr(to_val, 'iteritems')
-                                                    or (allowDictToListMerging and isinstance(to_val, list )) ):
-                mergeCascadingDicts( from_val, to_val, allowDictToListMerging )
+            # if isMapping(from_val) and ( isMapping(to_val) or (allowDictToListMerging and isinstance(to_val, list )) ):
+            if hasattr(from_val, 'iteritems') and (hasattr(to_val, 'iteritems')
+                                                   or (allowDictToListMerging and isinstance(to_val, list))):
+                mergeCascadingDicts(from_val, to_val, allowDictToListMerging)
             else:
                 to_dict[key] = from_val
         else:
             if isinstance(from_val, RemovedKey):
                 continue
             if listMerge and allowNewListMembers and key >= len(to_dict):
-                to_dict.extend( (None,) * (key + 1 - len(to_dict)) )
+                to_dict.extend((None,) * (key + 1 - len(to_dict)))
             to_dict[key] = from_val
 
-def setCascadingDictItem( dict, keys, value ):
+def setCascadingDictItem(dict, keys, value):
 
     currentDict = dict
     for key in keys[:-1]:
@@ -510,7 +645,7 @@ def setCascadingDictItem( dict, keys, value ):
         currentDict = currentDict[key]
     currentDict[keys[-1]] = value
 
-def getCascadingDictItem( dict, keys, default={} ):
+def getCascadingDictItem(dict, keys, default={}):
 
     currentDict = dict
     for key in keys[:-1]:
@@ -522,7 +657,7 @@ def getCascadingDictItem( dict, keys, default={} ):
     except KeyError:
         return default
 
-def sequenceToSlices( intList, sort=True ):
+def sequenceToSlices(intList, sort=True):
     """convert a sequence of integers into a tuple of slice objects"""
     slices = []
 
@@ -554,37 +689,35 @@ def sequenceToSlices( intList, sort=True ):
             elif thisStep > 0 and thisStep == lastStep:
                 # we found 2 in a row, they are the beginning of a new slice
                 # setting step indicates we've found a pattern
-                #print "found a pattern on", thisStep
+                # print "found a pattern on", thisStep
                 step = thisStep
             else:
                 if step is not None:
                     # since step is set we know a pattern has been found (at least two in a row with same step)
                     # we also know that the current value is not part of this pattern, so end the old slice at the last value
                     if step == 1:
-                        newslice = slice(start, lastVal+1, None)
+                        newslice = slice(start, lastVal + 1, None)
                     else:
-                        newslice = slice(start, lastVal+1, step)
+                        newslice = slice(start, lastVal + 1, step)
                     thisStep = None
                     start = curr
                 else:
                     if lastStep == 1:
-                        newslice = slice(start, lastVal+1, lastStep )
+                        newslice = slice(start, lastVal + 1, lastStep)
                         thisStep = None
                         start = curr
                     else:
-                        newslice = slice(start, stop+1 )
+                        newslice = slice(start, stop + 1)
                         start = lastVal
 
 #                print "adding", newslice
-                slices.append( newslice )
+                slices.append(newslice)
                 # start the new
 
                 stop = None
                 step = None
 
-
             lastStep = thisStep
-
 
             stop = lastVal
             lastVal = curr
@@ -592,28 +725,29 @@ def sequenceToSlices( intList, sort=True ):
         if step is not None:
             # end the old slice
             if step == 1:
-                newslice = slice(start, lastVal+1, None)
+                newslice = slice(start, lastVal + 1, None)
             else:
-                newslice = slice(start, lastVal+1, step)
+                newslice = slice(start, lastVal + 1, step)
 
-            #print "adding", newslice
-            slices.append( newslice )
+            # print "adding", newslice
+            slices.append(newslice)
         else:
 
             if lastStep == 1:
-                slices.append( slice(start, lastVal+1, lastStep ) )
+                slices.append(slice(start, lastVal + 1, lastStep))
 
             else:
-                slices.append( slice(start, start+1 ) )
+                slices.append(slice(start, start + 1))
                 if lastStep is not None:
-                    slices.append( slice(lastVal, lastVal+1 ) )
+                    slices.append(slice(lastVal, lastVal + 1))
 
     return slices
 
 def izip_longest(*args, **kwds):
     # izip_longest('ABCD', 'xy', fillvalue='-') --> Ax By C- D-
     fillvalue = kwds.get('fillvalue')
-    def sentinel(counter = ([fillvalue]*(len(args)-1)).pop):
+
+    def sentinel(counter=([fillvalue] * (len(args) - 1)).pop):
         yield counter()         # yields the fillvalue, or raises IndexError
     fillers = itertools.repeat(fillvalue)
     iters = [itertools.chain(it, sentinel(), fillers) for it in args]

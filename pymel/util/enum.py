@@ -61,19 +61,23 @@ __version__ = "0.4.3"
 import operator
 
 class EnumException(Exception):
+
     """ Base class for all exceptions in this module """
+
     def __init__(self):
         if self.__class__ is EnumException:
             raise NotImplementedError, \
                 "%s is an abstract class for subclassing" % self.__class__
 
 class EnumEmptyError(AssertionError, EnumException):
+
     """ Raised when attempting to create an empty enumeration """
 
     def __str__(self):
         return "Enumerations cannot be empty"
 
 class EnumBadKeyError(TypeError, EnumException):
+
     """ Raised when creating an Enum with non-string keys """
 
     def __init__(self, key):
@@ -83,6 +87,7 @@ class EnumBadKeyError(TypeError, EnumException):
         return "Enumeration keys must be strings: %r" % (self.key,)
 
 class EnumImmutableError(TypeError, EnumException):
+
     """ Raised when attempting to modify an Enum """
 
     def __init__(self, *args):
@@ -90,17 +95,20 @@ class EnumImmutableError(TypeError, EnumException):
 
     def __str__(self):
         return "Enumeration does not allow modification"
-    
+
 class EnumBadDefaultKeyError(ValueError, EnumException):
+
     """ Raised when a supplied default key for a value was not present """
+
     def __init__(self, val, key):
         self.val = val
         self.key = key
 
     def __str__(self):
-        return "Given default key %s for index %s not present in keys" % (self.key, self.val)
+        return "Given default key %r for index %r not present in keys" % (self.key, self.val)
 
 class EnumValue(object):
+
     """ A specific value of an enumerated type """
 
     def __init__(self, enumtype, index, key, doc=None):
@@ -120,6 +128,7 @@ class EnumValue(object):
 
     def __str__(self):
         return "%s" % (self.key)
+
     def __int__(self):
         return self.index
 
@@ -142,6 +151,8 @@ class EnumValue(object):
                 self.__key,
             )
 
+    def _asTuple(self):
+        return (self.__index, self.__key, self.__doc)
 
     def __hash__(self):
         return hash(self.__index)
@@ -165,9 +176,9 @@ class EnumValue(object):
             result = cmp(self.index, other.index)
         except (AssertionError, AttributeError):
             if isinstance(other, basestring):
-                result=cmp(self.key, other)
+                result = cmp(self.key, other)
             elif isinstance(other, int):
-                result=cmp(self.index, other)
+                result = cmp(self.index, other)
             else:
                 result = NotImplemented
 
@@ -175,15 +186,16 @@ class EnumValue(object):
 
 # Modified to support multiple keys for the same value
 class Enum(object):
+
     """ Enumerated type """
 
     def __init__(self, name, keys, **kwargs):
         """ Create an enumeration instance
 
         :Parameters:
-        name : `string`
+        name : `str`
             The name of this enumeration
-        keys : `dict` from `string` to `int`, or iterable of keys
+        keys : `dict` from `str` to `int`, or iterable of keys
             The keys for the enumeration; if this is a dict, it should map
             from key to it's value (ie, from string to int)
             Otherwise, it should be an iterable of keys, where their index
@@ -191,7 +203,7 @@ class Enum(object):
             would give the same result:
                 {'Red':0,'Green':1,'Blue':2}
                 ('Red', 'Green', 'Blue')
-        multiKeys : `bool` 
+        multiKeys : `bool`
             Defaults to False
             If True, allows multiple keys per value - ie,
                 Enum('Names', {'Bob':0,'Charles':1,'Chuck':1}, multiKeys=True)
@@ -211,6 +223,9 @@ class Enum(object):
             present within keys (if not, a EnumBadDefaultKeyError is raised).
             If there are multiple keys for a given value, and no defaultKey is
             provided, which one is used is undefined.
+        docs : `dict` from `str` to `int, or None
+            if given, should provide a map from keys to an associated docstring
+            for that key; the dict need not provide an entry for every key
         """
 
         if not keys:
@@ -218,14 +233,15 @@ class Enum(object):
 
         defaultKeys = kwargs.pop('defaultKeys', {})
         multiKeys = kwargs.pop('multiKeys', False)
+        docs = kwargs.pop('docs', {})
 
         # Keys for which there are multiple keys mapping to the same
-        # value, but are not the default key for that value 
+        # value, but are not the default key for that value
         extraKeys = {}
-        
+
         if operator.isMappingType(keys):
             if not multiKeys:
-                reverse = dict( [ (v,k) for k,v in keys.items() ] )
+                reverse = dict([(v, k) for k, v in keys.items()])
             else:
                 reverse = dict()
                 for key, val in keys.iteritems():
@@ -244,41 +260,28 @@ class Enum(object):
                             if multiKey != defaultKey:
                                 extraKeys[multiKey] = val
                     reverse[val] = defaultKey
-            keygen = [ ( v, reverse[v]) for v in sorted(reverse.keys()) ]
+            keygen = [(v, reverse[v]) for v in sorted(reverse.keys())]
             values = {}
         else:
-            keygen = enumerate( keys )
+            keygen = enumerate(keys)
             values = [None] * len(keys)
-            
-        value_type= kwargs.get('value_type', EnumValue)
+
+        value_type = kwargs.get('value_type', EnumValue)
         #keys = tuple(keys)
 
-        docs = {}
-        def getDocs(key):
-            if isinstance(key, (tuple, list)) and len(key)==2:
-                key, doc = key
-                docs[val]=doc
-            else:
-                doc = None
-            return key, doc
-        
         keyDict = {}
         for val, key in keygen:
-            #print val, key
-            kwargs = {}
-            key, doc = getDocs(key)
-            kwargs['doc'] = doc
-            value = value_type(self, val, key, **kwargs)
+            # print val, key
+            value = value_type(self, val, key, docs.get(key))
             values[val] = value
             keyDict[key] = val
             try:
                 super(Enum, self).__setattr__(key, value)
             except TypeError, e:
                 raise EnumBadKeyError(key)
-        
+
         for key, val in extraKeys.iteritems():
             # throw away any docs for the extra keys
-            key, _ = getDocs(key)
             keyDict[key] = val
 
         if not operator.isMappingType(values):
@@ -289,8 +292,30 @@ class Enum(object):
         super(Enum, self).__setattr__('_docs', docs)
         super(Enum, self).__setattr__('_name', name)
 
+    @property
+    def name(self):
+        return self._name
+
+    def __eq__(self, other):
+        if not isinstance(other, Enum):
+            return False
+        if not self._keys == other._keys:
+            return False
+        # For values, can't just compare them straight up, as the values
+        # contain a ref to this Enum class, and THEIR compare compares the
+        # Enum class - which would result in a recursive cycle
+        # Instead, compare the values' _asTuple
+
+        def valTuples(enum):
+            return dict((key, val._asTuple()) for (key, val)
+                        in enum._values.iteritems())
+        return valTuples(self) == valTuples(other)
+
+    def __ne__(self, other):
+        return not self == other
+
     def __repr__(self):
-        return '%s(\n%s)' % (self.__class__.__name__, ',\n'.join([ repr(v) for v in self.values()]))
+        return '%s(\n%s)' % (self.__class__.__name__, ',\n'.join([repr(v) for v in self.values()]))
 
     def __str__(self):
         return '%s%s' % (self.__class__.__name__, self.keys())
@@ -321,18 +346,20 @@ class Enum(object):
         if isinstance(value, basestring):
             is_member = (value in self._keys)
         else:
-            # EnumValueCompareError was never defined... 
-#            try:
-#                is_member = (value in self._values)
-#            except EnumValueCompareError:
-#                is_member = False
+            # EnumValueCompareError was never defined...
+            #            try:
+            #                is_member = (value in self._values)
+            #            except EnumValueCompareError:
+            #                is_member = False
             is_member = (value in self._values)
         return is_member
 
     def getIndex(self, key):
-        """
-        get an index value from a key. this method always returns an index. if a valid index is passed instead of a key, the index will
-        be returned unchanged.  this is useful when you need an index, but are not certain whether you are starting with a key or an index.
+        """Get an index value from a key
+        This method always returns an index. If a valid index is passed instead
+        of a key, the index will be returned unchanged.  This is useful when you
+        need an index, but are not certain whether you are starting with a key
+        or an index.
 
             >>> units = Enum('units', ['invalid', 'inches', 'feet', 'yards', 'miles', 'millimeters', 'centimeters', 'kilometers', 'meters'])
             >>> units.getIndex('inches')
@@ -353,18 +380,21 @@ class Enum(object):
             if key in self._values:
                 return key
             else:
-                raise ValueError, "invalid enumerator index: %r" % key
+                raise ValueError, "invalid enumerator index: %r" % (key,)
         else:
             # got a key: retrieving index
             try:
                 return self._keys[str(key)]
             except:
-                raise ValueError, "invalid enumerator key: %r" % key
+                raise ValueError, "invalid enumerator key: %r" % (key,)
 
     def getKey(self, index):
         """
-        get a key value from an index. this method always returns a key. if a valid key is passed instead of an index, the key will
-        be returned unchanged.  this is useful when you need a key, but are not certain whether you are starting with a key or an index.
+        Get a key value from an index
+        This method always returns a key. If a valid key is passed instead of an
+        index, the key will be returned unchanged.  This is useful when you need
+        a key, but are not certain whether you are starting with a key or an
+        index.
 
             >>> units = Enum('units', ['invalid', 'inches', 'feet', 'yards', 'miles', 'millimeters', 'centimeters', 'kilometers', 'meters'])
             >>> units.getKey(2)
@@ -394,11 +424,10 @@ class Enum(object):
             else:
                 raise ValueError, "invalid enumerator key: %r" % index
 
-
     def values(self):
         "return a list of `EnumValue`s"
         if operator.isMappingType(self._values):
-            return tuple([ self._values[k] for k in sorted(self._values.keys()) ])
+            return tuple([self._values[k] for k in sorted(self._values.keys())])
         else:
             return self._values
 
@@ -406,14 +435,15 @@ class Enum(object):
         "return a list of keys as strings"
         if not hasattr(self, '_keyStrings'):
             if operator.isMappingType(self._values):
-                keyStrings = tuple([ self._values[k].key for k in sorted(self._values.keys()) ])
+                keyStrings = tuple([self._values[k].key for k in sorted(self._values.keys())])
             else:
-                keyStrings = tuple([ v.key for v in self._values ])
+                keyStrings = tuple([v.key for v in self._values])
             super(Enum, self).__setattr__('_keyStrings', keyStrings)
         return self._keyStrings
 
 import utilitytypes
 class EnumDict(utilitytypes.EquivalencePairs):
+
     """
     This class provides a dictionary type for storing enumerations.  Keys are string labels, while
     values are enumerated integers.
@@ -460,13 +490,13 @@ class EnumDict(utilitytypes.EquivalencePairs):
 
         if operator.isMappingType(keys):
             items = keys.items()
-            if isinstance(items[0][0],int):
-                byKey = dict( (k,v) for v,k in items )
+            if isinstance(items[0][0], int):
+                byKey = dict((k, v) for v, k in items)
             else:
                 byKey = keys
         else:
-            byKey = dict( (k,v) for v,k in enumerate( keys ) )
-        super(EnumDict,self).__init__(byKey)
+            byKey = dict((k, v) for v, k in enumerate(keys))
+        super(EnumDict, self).__init__(byKey)
 
 #        for key, value in byKey.items():
 #            try:
@@ -549,20 +579,18 @@ class EnumDict(utilitytypes.EquivalencePairs):
             try:
                 return self._reverse[index]
             except KeyError:
-                raise ValueError( "invalid enumerator value: %r" % index )
+                raise ValueError("invalid enumerator value: %r" % index)
         else:
             # got a potential key : checking if it's valid
             if index in dict.keys(self):
                 return index
             else:
-                raise ValueError( "invalid enumerator key: %r" % index)
-
+                raise ValueError("invalid enumerator key: %r" % index)
 
     def values(self):
         "return a list of ordered integer values"
         return sorted(dict.values(self))
 
-
     def keys(self):
         "return a list of keys as strings ordered by their enumerator value"
-        return [ self._reverse[v] for v in self.values() ]
+        return [self._reverse[v] for v in self.values()]

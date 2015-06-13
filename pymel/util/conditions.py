@@ -3,10 +3,12 @@
 #------------------------------------------------------------------------------
 
 class Condition(object):
+
     """
     Used to chain together objects for conditional testing.
     """
-    class NO_DATA(Exception): pass
+    class NO_DATA(Exception):
+        pass
 
     def __init__(self, value=None):
         self.value = value
@@ -16,11 +18,13 @@ class Condition(object):
 
     def __or__(self, other):
         return Or(self, other)
-    def __ror(self, other):
+
+    def __ror__(self, other):
         return Or(other, self)
 
     def __and__(self, other):
         return And(self, other)
+
     def __rand__(self, other):
         return And(other, self)
 
@@ -30,11 +34,15 @@ class Condition(object):
     def __nonzero__(self):
         return self.eval()
 
+    def __str__(self):
+        return str(self.value)
+
 Always = Condition(True)
 
 Never = Condition(False)
 
 class Inverse(Condition):
+
     def __init__(self, toInvert):
         self.toInvert = toInvert
 
@@ -45,6 +53,7 @@ class Inverse(Condition):
         return "not %s" % self.toInvert
 
 class AndOrAbstract(Condition):
+
     def __init__(self, *args):
         self.args = []
         for arg in args:

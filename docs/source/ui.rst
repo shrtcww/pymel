@@ -6,10 +6,9 @@ Building User Interfaces
 ==========================
 
 As with Maya nodes, pymel adds the ability to use object-oriented code for building MEL GUIs. Like nodes and 
-PyNodes, every UI command in maya.cmds has a class counterpart in pymel derived from the base class `PyUI`.
+PyNodes, every UI command in maya.cmds has a class counterpart in pymel derived from the base class `PyUI <pymel.core.uitypes.PyUI>`.
 There is one class for every UI element type, each with necessary methods to get and set properties.  And as with nodes,
-the procedural commands you already know and love are retrofitted to return PyUI classes, so you don't have to completely change
-the way you code ::
+the procedural commands you already know and love are retrofitted to return `PyUI <pymel.core.uitypes.PyUI>` classes, so you don't have to completely change the way you code ::
 
 
     from pymel.core import *
@@ -53,11 +52,11 @@ The simplest method of setting up a callback is to pass the name of the callback
 
 	showWindow()
 
-This example works fine if you run it from the script editor, but if you save it into a module, say ``myModule``, and then import that module as normal ( e.g. ``import myModule`` ), it will cease to work (assuming you haven't already run it from the script edtior).  This is because the *namespace* of the function has changed. It can no longer be found as ``buttonPressed``, because from Maya's perspective, its new location is ``myModule.buttonPressed``.
+This example works fine if you run it from the script editor, but if you save it into a module, say ``myModule``, and then import that module as normal ( e.g. ``import myModule`` ), it will cease to work (assuming you haven't already run it from the script edtior).  This is because the *namespace* of the ``buttonPressed`` function has changed. It can no longer be found as ``buttonPressed``, because from Maya's perspective, its new location is ``myModule.buttonPressed``.
 
 There are several solutions to this. 
 
-	1. you can import the contents of ``myModule`` directly into the main namespace ( e.g. ``from myModule import *`` ). This will allow ``buttonPressed`` to be accessed without the namespace. This is not generally recommended.  
+	1. you can import the contents of ``myModule`` directly into the main namespace ( e.g. ``from myModule import *`` ). This will allow ``buttonPressed`` to be accessed without the namespace. This is not generally recommended as its clutters up your main namespace which could ultimately lead to name clashes.
 	2. you can change your script and prefix the function with the module it will be imported from::
 
    		button( command="myModule.buttonPressed()" )
@@ -66,14 +65,12 @@ The problem with both of these solutions is that you must ensure that the module
   
 A more robust solution is to include an import command in the string to execute::
 
-    button ( command="import myModule; myModule.buttonPressed()" )
+    button( command="import myModule; myModule.buttonPressed()" )
 
-Another major limitation with this method is that it is hard to pass parameters to these functions since these
-have to be converted into a string representation. This becomes impractical when the parameters are complex objects,
+That gives us a fairly reliable solution, but it still has one major drawback: any parameters that we wish to pass to our function must also be converted to strings. This becomes impractical when the parameters are complex objects,
 such as dictionaries, lists, or other custom objects. 
 
-So, as simple as the string method may seem at first, it's can actually be quite a pain. Because of these limitations, this method is not recommended.
-
+So, while string callbacks may seem simple at first, they have limitations, and are generally not recommended.
 
 
 Function Object
@@ -88,16 +85,16 @@ When using this technique, you pass an actual function object instead of a strin
 
     win = window(title="My Window")
     layout = columnLayout()    
-    btn = button( command=buttonPressed )
+    btn = button(command=buttonPressed)
     
     showWindow()
 
 .. note::  The callback function has to be defined before it is passed to the command flag.
 
 
-The difference from the previous example is subtle: ``command="buttonPressed()"`` is now ``command=buttonPressed``. The most important thing to realize here is that ``buttonPressed`` is not a string, it is an actual python function object. As such, if we had included ``()`` ( e.g. ``command=buttonPressed()`` ) we would have executed the ``buttonPressed`` function immediately, but we don't want that to happen yet. By leaving the parentheses off, we are able to hand the function over to the UI element to execute later.  For most commands that support callbacks, Maya recognizes when you are passing a string and when you are passing a function, and it treats each differently when the callback is triggered.
+The difference from the previous example is subtle: ``command="buttonPressed()"`` is now ``command=buttonPressed``. The most important thing to realize here is that ``buttonPressed`` is not a string, it is a python function object. As such, if we had included ``()`` ( e.g. ``command=buttonPressed()`` ) we would have executed the ``buttonPressed`` function immediately, but we don't want that to happen yet. By leaving the parentheses off, we hand the function over to the UI element to execute later.  For most commands that support callbacks, Maya recognizes when you are passing a string and when you are passing a function, and it treats each differently when the callback is triggered.
 
-This method is very robust, its primary weakness lies in passing arguments to our function.  To see what I mean, try executing the code above and pressing the button...
+This method is very robust, but there are a few caveats to be aware of.  To see what I mean, try executing the code above and pressing the button...
 
 ...when we press it, we get this error::
 
@@ -112,7 +109,7 @@ Why?! The `button` UI widget, like many others, automatically passes arguments t
 		
 	When the callback is executed, the ``#1`` gets replaced with the current state of the radioButton: ``0`` or ``1``.  Unfortunately, when using python callbacks, you can't request which arguments you want, you get them all.
 
-So, to make our callback work, we need to modify it to accept the argument that the button ``command`` callback is passing us::
+So, to make our callback work, we need to modify the function to accept the argument that the button ``command`` callback is passing us::
 
     def buttonPressed(arg):
         print "pressed!"
@@ -198,7 +195,7 @@ In the following example, we're going to make several buttons. Our intention is 
 
 	win = window(title="My Window")
 	layout = columnLayout()
-	names = [ 'chad', 'robert', 'james' ]
+	names = ['chad', 'robert', 'james']
 	for name in names:
 	    button( label=name, command = lambda *args: buttonPressed(name) )
 
@@ -225,7 +222,7 @@ Here's an example::
 
 	win = window(title="My Window")
 	layout = columnLayout()
-	names = [ 'chad', 'robert', 'james' ]
+	names = ['chad', 'robert', 'james']
 	for name in names:
 	    button( label=name, command = Callback( buttonPressed, name ) )
 
@@ -252,24 +249,12 @@ The `Callback` class ignores any arguments passed in from the UI element, so you
 Layouts
 ----------------------------------
 
+Automatic Form Layouts
+======================
+
 One major pain in designing GUIs is the placing of controls in layouts. 
 Maya provides the formLayout command which lets controls resize and keep their relationship with other controls, however the use of this command is somewhat cumbersome and unintuitive.
 Pymel provides an extended FormLayout class, which handles the details of attaching controls to one another automatically::
-
-
-    win = window(title="My Window")
-    layout = formLayout()
-    for i in range(5):
-        button(label="button %s" % i)
-    win.show()
-
-
-The 'redistribute' method should now be used to redistributes the children (buttons in this case) evenly in their layout::    
-    
-    layout.redistribute()
-
-
-A formLayout will align its controls vertically by default. By using the 'verticalLayout' or 'horizontalLayout' commands you can explicitly override this (note that both commands still return a FormLayout object)::
 
     win = window(title="My Window")
     layout = horizontalLayout()
@@ -278,6 +263,9 @@ A formLayout will align its controls vertically by default. By using the 'vertic
     layout.redistribute()    # now will redistribute horizontally
     win.show()
 
+
+The 'redistribute' method redistributes the children (buttons in this case) evenly in their layout.
+A formLayout will align its controls vertically by default. By using the 'verticalLayout' or 'horizontalLayout' commands you can explicitly override this (note that both commands still return a FormLayout object)::
 
 By default, the control are redistributed evenly but this can be overridden::
 
@@ -292,8 +280,6 @@ You can also specify the ratios at creation time, as well as the spacing between
         button(label="button %s" % i)
     layout.redistribute()    # now will redistribute horizontally
     win.show()
-    
-
 
 Finally, just for fun, you can also reset, flip and reverse the layout::
 
@@ -301,3 +287,93 @@ Finally, just for fun, you can also reset, flip and reverse the layout::
     layout.reverse()  # reverse the order of the controls
     layout.reset()    # reset the ratios
 
+
+Streamlined GUI Creation with Context Managers
+==============================================
+
+Anyone who has coded GUIs in Maya using both MEL and python will tell you that if there is one thing they miss about MEL (and only one thing), it is the use of indentation to organize layout hierarchy. this is not possible in python because tabs are a syntactical element, indicating code blocks. In this release, PyMEL harnesses python's ``with`` statement to use indentation to streamlines the process of GUI creation.
+
+Here is a comparison of the `uiTemplate` example from the Maya docs.
+
+First, using ``maya.cmds``::
+
+    import maya.cmds as cmds
+
+    if cmds.uiTemplate('ExampleTemplate', exists=True):
+        cmds.deleteUI('ExampleTemplate', uiTemplate=True)
+    cmds.uiTemplate('ExampleTemplate')
+    cmds.button(defineTemplate='ExampleTemplate',
+                width=100, height=40, align='left')
+    cmds.frameLayout(defineTemplate='ExampleTemplate', borderVisible=True,
+                     labelVisible=False)
+
+    window = cmds.window(menuBar=True,menuBarVisible=True)
+
+    cmds.setUITemplate('ExampleTemplate', pushTemplate=True)
+    cmds.columnLayout(rowSpacing=5)
+
+    cmds.frameLayout()
+    cmds.columnLayout()
+    cmds.button(label='One')
+    cmds.button(label='Two')
+    cmds.button(label='Three')
+    cmds.setParent('..')
+    cmds.setParent('..')
+
+    cmds.frameLayout()
+    cmds.optionMenu()
+    menuItem(label='Red')
+    menuItem(label='Green')
+    menuItem(label='Blue')
+    cmds.setParent('..')
+    cmds.setParent('..')
+
+    cmds.setUITemplate(popTemplate=True)
+
+    cmds.showWindow( window )
+
+    menu()
+    menuItem(label='One')
+    menuItem(label='Two')
+    menuItem(label='Sub', subMenu=True)
+    menuItem(label='A')
+    menuItem(label='B')
+    setParent('..', menu=1)
+    menuItem(label='Three')
+
+
+Now, with PyMEL::
+
+    from __future__ import with_statement # this line is only needed for 2008 and 2009
+    from pymel.core import *
+
+    template = uiTemplate('ExampleTemplate', force=True)
+    template.define(button, width=100, height=40, align='left')
+    template.define(frameLayout, borderVisible=True, labelVisible=False)
+
+    with window(menuBar=True,menuBarVisible=True) as win:
+        # start the template block
+        with template:
+            with columnLayout( rowSpacing=5 ):
+                with frameLayout():
+                    with columnLayout():
+                        button(label='One')
+                        button(label='Two')
+                        button(label='Three')
+                with frameLayout():
+                    with optionMenu():
+                        menuItem(label='Red')
+                        menuItem(label='Green')
+                        menuItem(label='Blue')
+    # add a menu to an existing window
+    with win:
+        with menu():
+            menuItem(label='One')
+            menuItem(label='Two')
+            with subMenuItem(label='Sub'):
+                menuItem(label='A')
+                menuItem(label='B')
+            menuItem(label='Three')
+
+
+Python's ``with`` statement was added in version 2.5 (Maya 2008 and 2009).  Its purpose is to provide automatic "enter" and "exit" functions for class instances that are designed to support it.  This is perfect for MEL GUI creation: for example, when we enter the ``with`` block using a PyMEL `ui.Layout` class or a command that creates one, the layout object sets itself to the active default parent, and when the code block ends, it restores the default parent to it's own parent. There is now little need to ever call `setParent`.  As you can see in the example, the ``with`` statement also works with windows, menus, and templates:  windows call `setParent` and `showWindow`, and templates are automatically "pushed" and "popped".

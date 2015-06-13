@@ -1,3 +1,9 @@
 #!/bin/bash
-echo "adding changes from $1 to $2 to CHANGELOG"
-git log --reverse --pretty=format:'- %s' --no-merges $1..$2 >> CHANGELOG
+# get path to script (posix compliant)
+pushd `dirname $0` > /dev/null
+scriptdir=`pwd`
+popd > /dev/null
+echo $scriptdir
+
+echo "adding changes from $1 to $2 to CHANGELOG.temp"
+git log --reverse --pretty=format:'- %s' --no-merges $1..$2 >> $scriptdir/CHANGELOG.temp

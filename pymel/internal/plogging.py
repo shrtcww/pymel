@@ -1,5 +1,6 @@
 "pymel logging functions"
-import sys, os
+import sys
+import os
 
 import logging
 import logging.config
@@ -18,22 +19,24 @@ from pymel.util.decoration import decorator
 
 PYMEL_CONF_ENV_VAR = 'PYMEL_CONF'
 PYMEL_LOGLEVEL_ENV_VAR = 'PYMEL_LOGLEVEL'
+PYMEL_ERRORLEVEL_ENV_VAR = 'PYMEL_ERRORLEVEL'
 
 #===============================================================================
 # DEFAULT FORMAT SETUP
 #===============================================================================
 
 def _fixMayaOutput():
-    if not hasattr( sys.stdout,"flush"):
-        def flush(*args,**kwargs):
+    if not hasattr(sys.stdout, "flush"):
+        def flush(*args, **kwargs):
             pass
         try:
             sys.stdout.flush = flush
         except AttributeError:
             # second try
-            #if hasattr(maya,"Output") and not hasattr(maya.Output,"flush"):
+            # if hasattr(maya,"Output") and not hasattr(maya.Output,"flush"):
             class MayaOutput(maya.Output):
-                def flush(*args,**kwargs):
+
+                def flush(*args, **kwargs):
                     pass
             maya.Output = MayaOutput()
             sys.stdout = maya.Output
@@ -46,17 +49,17 @@ def getConfigFile():
         return configFile
     home = os.environ.get('HOME')
     if home:
-        configFile = os.path.join( home, "pymel.conf")
+        configFile = os.path.join(home, "pymel.conf")
         if os.path.isfile(configFile):
             return configFile
-    moduleDir = os.path.dirname( os.path.dirname( sys.modules[__name__].__file__ ) )
-    configFile = os.path.join(moduleDir,"pymel.conf")
+    moduleDir = os.path.dirname(os.path.dirname(sys.modules[__name__].__file__))
+    configFile = os.path.join(moduleDir, "pymel.conf")
     if os.path.isfile(configFile):
         return configFile
     raise IOError, "Could not find pymel.conf"
 
 def getLogConfigFile():
-    configFile = os.path.join(os.path.dirname(__file__),"user_logging.conf")
+    configFile = os.path.join(os.path.dirname(__file__), "user_logging.conf")
     if os.path.isfile(configFile):
         return configFile
     return getConfigFile()
@@ -64,7 +67,6 @@ def getLogConfigFile():
 assert hasattr(maya.utils, 'shellLogHandler'), "If you manually installed pymel, ensure " \
     "that pymel comes before Maya's site-packages directory on PYTHONPATH / sys.path.  " \
     "See pymel docs for more info."
-
 
 
 #    Like logging.config.fileConfig, but intended only for pymel's loggers,
@@ -126,14 +128,14 @@ def pymelLogFileConfig(fname, defaults=None, disable_existing_loggers=False):
         # Handlers add themselves to logging._handlers
         handlers = logging.config._install_handlers(cp, formatters)
 
-        if sys.version_info >= (2,6):
+        if sys.version_info >= (2, 6):
             logging.config._install_loggers(cp, handlers,
                                             disable_existing_loggers=0)
         else:
             logging.config._install_loggers(cp, handlers)
             # The _install_loggers function disables old-loggers, so we need to
             # re-enable them
-            for k,v in logging.root.manager.loggerDict.iteritems():
+            for k, v in logging.root.manager.loggerDict.iteritems():
                 if hasattr(v, 'disabled') and v.disabled:
                     v.disabled = 0
 
@@ -197,16 +199,29 @@ def getLogger(name):
         name = name[:-len(suffix)]
     logger = logging.getLogger(name)
     environLogLevelOverride(logger)
+    addErrorLog(logger)
+    # for convenience, stick 'DEBUG', 'INFO', 'WARNING', etc attributes onto
+    # the logger itself
+    for logEnumValue in logLevels.values():
+        setattr(logger, logEnumValue.key, logEnumValue.index)
     return logger
 
 # keep as an enumerator so that we can keep the order
-logLevels = util.Enum( 'logLevels', dict([(getLevelName(n),n) for n in range(0,CRITICAL+1,10)]) )
+logLevels = util.Enum('logLevels', dict([(getLevelName(n), n) for n in range(0, CRITICAL + 1, 10)]))
 
 def nameToLevel(name):
-    return logLevels.getIndex(name)
+    try:
+        return int(name)
+    except ValueError:
+        return logLevels.getIndex(name)
 
 def levelToName(level):
-    return logLevels.getKey(level)
+    if not isinstance(level, int):
+        raise TypeError(level)
+    try:
+        return logLevels.getKey(level)
+    except ValueError:
+        return str(level)
 
 environLogLevelOverride(pymelLogger)
 
@@ -217,13 +232,15 @@ environLogLevelOverride(pymelLogger)
 
 def timed(level=DEBUG):
     import time
+
     @decorator
     def timedWithLevel(func):
         logger = getLogger(func.__module__)
+
         def timedFunction(*arg, **kwargs):
             t = time.time()
             res = func(*arg, **kwargs)
-            t = time.time() - t # convert to seconds float
+            t = time.time() - t  # convert to seconds float
             strSecs = time.strftime("%M:%S.", time.localtime(t)) + ("%.3f" % t).split(".")[-1]
             logger.log(level, 'Function %s(...) - finished in %s seconds' % (func.func_name, strSecs))
             return res
@@ -241,18 +258,18 @@ def _setupLevelPreferenceHook():
 
     LOGLEVEL_OPTVAR = 'pymel.logLevel'
 
-
     # retrieve the preference as a string name, for human readability.
     # we need to use MGlobal because cmds.optionVar might not exist yet
     # TODO : resolve load order for standalone.  i don't think that userPrefs is loaded yet at this point in standalone.
-    levelName = os.environ.get( PYMEL_LOGLEVEL_ENV_VAR,
-                                MGlobal.optionVarStringValue( LOGLEVEL_OPTVAR ) )
+    levelName = os.environ.get(PYMEL_LOGLEVEL_ENV_VAR,
+                               MGlobal.optionVarStringValue(LOGLEVEL_OPTVAR))
     if levelName:
-        level =  min( logging.WARNING, nameToLevel(levelName) ) # no more than WARNING level
+        level = min(logging.WARNING, nameToLevel(levelName))  # no more than WARNING level
         pymelLogger.setLevel(level)
-        pymelLogger.info("setting logLevel to user preference: %s (%d)" % (levelName, level) )
+        pymelLogger.info("setting logLevel to user preference: %s (%d)" % (levelName, level))
 
     func = pymelLogger.setLevel
+
     def setLevelHook(level, *args, **kwargs):
 
         levelName = levelToName(level)
@@ -262,7 +279,7 @@ def _setupLevelPreferenceHook():
         try:
             # save the preference as a string name, for human readability
             # we need to use MGlobal because cmds.optionVar might not exist yet
-            MGlobal.setOptionVarValue( LOGLEVEL_OPTVAR, levelName )
+            MGlobal.setOptionVarValue(LOGLEVEL_OPTVAR, levelName)
         except Exception, e:
             pymelLogger.warning("Log Level could not be saved to the user-prefs ('%s')" % e)
         return ret
@@ -271,7 +288,57 @@ def _setupLevelPreferenceHook():
     setLevelHook.__name__ = func.__name__
     pymelLogger.setLevel = setLevelHook
 
+#===============================================================================
+# ERROR LOGGER
+#===============================================================================
+ERRORLEVEL = None
+ERRORLEVEL_DEFAULT = logging.ERROR
+def raiseLog(logger, level, message, errorClass=RuntimeError):
+    '''For use in situations in which you may wish to raise an error or simply
+    print to a logger.
 
+    Ie, if checking for things that "shouldn't" happen, may want to raise an
+    error if a developer, but simply issue a warning and continue as gracefully
+    as possible for normal end-users.
+
+    So, if we make a call:
+        raiseLog(_logger, _logger.INFO, "oh noes! something weird happened!")
+    ...then what happens will depend on what the value of ERRORLEVEL (controlled
+    by the environment var %s) is - if it was not set, or set to ERROR, or
+    WARNING, then the call will result in issuing a _logger.info(...) call;
+    if it was set to INFO or DEBUG, then an error would be raised.
+
+    For convenience, raiseLog is installed onto logger instances created with
+    the getLogger function in this module, so you can do:
+        _logger.raiseLog(_logger.INFO, "oh noes! something weird happened!")
+    '''
+    # Initially wanted to have ERROR_LOGLEVEL controlled by the pymel.conf,
+    # but I want to be able to use raiseLog in early startup, before pymel.conf
+    # is read in pymel.internal.startup, so an environment variable seemed the
+    # only way to go
+    global ERRORLEVEL
+    if ERRORLEVEL is None:
+        levelName = os.environ.get(PYMEL_ERRORLEVEL_ENV_VAR)
+        if levelName is None:
+            ERRORLEVEL = ERRORLEVEL_DEFAULT
+        else:
+            ERRORLEVEL = nameToLevel(levelName)
+    if level >= ERRORLEVEL:
+        raise errorClass(message)
+    else:
+        logger.log(level, message)
+
+def addErrorLog(logger):
+    '''Adds an 'raiseLog' method to the given logger instance
+    '''
+    if 'raiseLog' not in logger.__dict__:
+        # because we're installing onto an instance, and not a class, we have to
+        # create our own wrapper which sets the logger
+        def instanceErrorLog(*args, **kwargs):
+            return raiseLog(logger, *args, **kwargs)
+        instanceErrorLog.__doc__ = raiseLog.__doc__
+        instanceErrorLog.__name__ = 'raiseLog'
+        logger.raiseLog = instanceErrorLog
+    return logger
 
 #_setupLevelPreferenceHook()
-

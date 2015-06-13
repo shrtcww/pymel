@@ -1,6 +1,6 @@
 
 """
-Convert mel scripts into python scripts.
+Convert mel code into python code.
 
 ==========================
 Mel To Python Translator
@@ -20,36 +20,30 @@ raised. I've added fixes for several common array assignment conventions:
 append new element
 ~~~~~~~~~~~~~~~~~~
 
-**MEL**
-
-.. python::
+MEL::
 
     string $strArray[];
     $strArray[`size $strArray`] = "foo";
 
-Python
+Python::
 
->>> strArray = []                #doctest: +SKIP
->>> strArray.append("foo")       #doctest: +SKIP
+    strArray = []
+    strArray.append("foo")
 
 assignment relative to end of array
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-**MEL**
-
-.. python::
+MEL::
 
     strArray[`size $strArray`-3] = "foo";
 
-Python
+Python::
 
->>> strArray[-3] = "foo"        #doctest: +SKIP
+    strArray[-3] = "foo"
 
 However, since the translator does not track values of variables, it does not know if any given index is out of
 range or not. so, the following would raise a 'list assignment index out of range' error when converted to
-python and would need to be manually fixed:
-
-.. python::
+python and would need to be manually fixed::
 
     string $strArray[];
     for ($i=0; $i<5; $i++)
@@ -59,59 +53,50 @@ python and would need to be manually fixed:
 for(init; condition; update)
 ----------------------------
 
-    the closest equivalent to this in python is something akin to:
+    the closest equivalent to this in python is something akin to::
 
-        >>> for i in range(start, end):    #doctest: +SKIP
+        for i in range(start, end):
+            ...
 
     in order for this type of for loop to be translated into a python for loop it must meet several requirements:
 
-        1. the initialization, condition, and update expressions must not be empty.
+    1. the initialization, condition, and update expressions must not be empty.
 
-            not translatable:
+        not translatable::
 
-            .. python::
+              for(; ; $i++) print $i;
 
-                  for(; ; $i++) print $i;
+    2. there can be only one conditional expression.
 
-        2. there can be only one conditional expression.
+        not translatable::
 
-            not translatable:
+              for($i=0; $i<10, $j<20; $i++) print $i;
 
-            .. python::
+    3. the variable which is being updated and tested in the condition (aka, the iterator) must exist alone on one
+        side of the    conditional expression. this one is easy enough to fix, just do some algebra:
 
-                  for($i=0; $i<10, $j<20; $i++) print $i;
+        not translatable::
 
-        3. the variable which is being updated and tested in the condition (aka, the iterator) must exist alone on one
-            side of the    conditional expression. this one is easy enough to fix, just do some algebra:
+              for($i=0; ($i-2)<10, $i++) print $i;
 
-            not translatable:
+        translatable::
 
-            .. python::
+              for($i=0; $i<(10+2), $i++) print $i;
 
-                  for($i=0; ($i-2)<10, $i++) print $i;
+    4. the iterator can appear only once in the update expression:
 
-            translatable:
+        not translatable::
 
-            .. python::
+              for($i=0; $i<10; $i++, $i+=2) print $i;
 
-                  for($i=0; $i<(10+2), $i++) print $i;
+    if these conditions are not met, the for loop will be converted into a while loop::
 
-        4. the iterator can appear only once in the update expression:
-
-            not translatable:
-
-            .. python::
-
-                  for($i=0; $i<10; $i++, $i+=2) print $i;
-
-    if these conditions are not met, the for loop will be converted into a while loop:
-
-        >>> i=0
-        >>> while 1:                        #doctest: +SKIP
-        ...     if not ( (i - 2)<10 ):
-        ...         break
-        ...     print i
-        ...     i+=1
+        i=0
+        while 1:
+            if not ( (i - 2)<10 ):
+                break
+            print i
+            i+=1
 
 
 Inconveniences
@@ -126,11 +111,11 @@ Global Variables
 ----------------
 
 Global variables are not shared between mel and python.  two functions have been added to pymel for this purpose:
-`getMelGlobal` and `setMelGlobal`. by default, the translator will convert mel global variables into python global
-variables AND intialize them to the value of their corresponding mel global variable using getMelGlobal(). if your
+`pymel.core.langauage.getMelGlobal` and `pymel.core.langauage.setMelGlobal`. by default, the translator will convert mel global variables into python global
+variables AND intialize them to the value of their corresponding mel global variable using `getMelGlobal()`. if your
 python global variable does not need to be shared with other mel scripts, you can remove the get- and
 setMelGlobals lines (for how to filter global variables, see below). however, if it does need to be shared, it is very
-important that you manually add setMelGlobal() to update the variable in the mel environment before calling any mel
+important that you manually add `setMelGlobal()` to update the variable in the mel environment before calling any mel
 procedures that will use the global variable.
 
 In order to hone the accuracy of the translation of global variables, you will find two dictionary parameters below --
@@ -139,8 +124,6 @@ to tell the translator which global variables to share with the mel environment 
 methods described above) and which to not.  for instance, in my case, it is desirable for all of maya's global
 variables to be initialized from their mel value but for our in-house variables not to be, since the latter are often
 used to pass values within a single script. see below for the actual regular expressions used to accomplish this.
-
-
 
 
 Comments
@@ -215,23 +198,22 @@ equivalents. in the case of 'firstElem', it will perform conversions like the fo
 """
 
 
-
 custom_proc_remap = {
-        'firstElem'             : ( 'string', lambda args, t: '%s[0]'                 % (args[0]) ),
-        'firstFloatElem'         : ( 'float', lambda args, t: '%s[0]'                 % (args[0]) ),
-        'stringArrayAppend'        : ( 'string[]', lambda args, t: '%s + %s'             % (args[0], args[1]) ),
-        'stringInArray'            : ( 'int', lambda args, t: '%s in %s'             % (args[0], args[1]) ),
-        'stringInStringArray'    : ( 'int', lambda args, t: '%s in %s'             % (args[0], args[1]) ),
-        'stringArrayPrefix'        : ( 'string[]', lambda args, t: '[ %s + x for x in %s ]'     % (args[0], args[1]) ),
-        'stringArraySuffix'        : ( 'string[]', lambda args, t: '[ x + %s for x in %s ]'     % (args[0], args[1]) ),
-        'addPad'                 : ( 'string', lambda args, t: "'%0" +  args[1] + "d' % " + args[0] ),
-        'getRefFileFromObject'    : ( 'string', lambda args, t: '%s.referenceFile()'    % (args[0]) )
-        }
+    'firstElem': ('string', lambda args, t: '%s[0]' % (args[0])),
+    'firstFloatElem': ('float', lambda args, t: '%s[0]' % (args[0])),
+    'stringArrayAppend': ('string[]', lambda args, t: '%s + %s' % (args[0], args[1])),
+    'stringInArray': ('int', lambda args, t: '%s in %s' % (args[0], args[1])),
+    'stringInStringArray': ('int', lambda args, t: '%s in %s' % (args[0], args[1])),
+    'stringArrayPrefix': ('string[]', lambda args, t: '[ %s + x for x in %s ]' % (args[0], args[1])),
+    'stringArraySuffix': ('string[]', lambda args, t: '[ x + %s for x in %s ]' % (args[0], args[1])),
+    'addPad': ('string', lambda args, t: "'%0" + args[1] + "d' % " + args[0]),
+    'getRefFileFromObject': ('string', lambda args, t: '%s.referenceFile()' % (args[0]))
+}
 
 # do not change the following line !!!
 melparse.proc_remap.update(custom_proc_remap)
 
-def resolvePath( melobj, recurse=False, exclude=(), melPathOnly=False, basePackage='' ):
+def resolvePath(melobj, recurse=False, exclude=(), melPathOnly=False, basePackage=''):
     """
     if passed a directory, get all mel files in the directory
     if passed a file, ensure it is a mel file
@@ -243,30 +225,30 @@ def resolvePath( melobj, recurse=False, exclude=(), melPathOnly=False, basePacka
         basePackage = ''
     files = []
     recursedResults = []
-    filepath = util.path( melobj )
+    filepath = util.path(melobj)
     if filepath.isfile():
         if filepath.ext == '.mel':
-            files = [ filepath.truepath() ]
+            files = [filepath.truepath()]
         else:
-            log.warning( "File is not a mel script: %s" % (filepath) )
+            log.warning("File is not a mel script: %s" % (filepath))
             files = []
     elif filepath.isdir():
-        files = [ f.truepath() for f in filepath.files( '[a-zA-Z]*.mel') ]
+        files = [f.truepath() for f in filepath.files('[a-zA-Z]*.mel')]
         if recurse:
             for dir in filepath.dirs():
                 recursedResults.extend(resolvePath(dir, recurse=recurse,
-                                         exclude=exclude, melPathOnly=melPathOnly,
-                                         basePackage = basePackage + '.' + melparse.pythonizeName(dir.basename())))
-    #elif not filepath.exists():
+                                                   exclude=exclude, melPathOnly=melPathOnly,
+                                                   basePackage=basePackage + '.' + melparse.pythonizeName(dir.basename())))
+    # elif not filepath.exists():
     else:
         # see if it's a procedure that we can derive a path from
         try:
-            info = pm.mel.whatIs( melobj ).split(': ')[-1]
+            info = pm.mel.whatIs(melobj).split(': ')[-1]
             assert info != 'Unknown', "If providing a procedure or a short file name, ensure the appropriate script is sourced"
-            melfile = util.path( info )
-            files = [ melfile.truepath() ]
+            melfile = util.path(info)
+            files = [melfile.truepath()]
         except Exception, msg:
-            log.warning( "Could not determine mel script from input '%s': %s." % (filepath, msg) )
+            log.warning("Could not determine mel script from input '%s': %s." % (filepath, msg))
     if exclude:
         for i, badFile in enumerate(exclude):
             badFile = util.path(badFile).canonicalpath()
@@ -288,14 +270,14 @@ def resolvePath( melobj, recurse=False, exclude=(), melPathOnly=False, basePacka
         files = [x for x in files if fileOnMelPath(x)]
     if basePackage and basePackage[-1] != '.':
         basePackage = basePackage + '.'
-    return [ (basePackage + melparse.getModuleBasename(x), x) for x in files] + recursedResults
+    return [(basePackage + melparse.getModuleBasename(x), x) for x in files] + recursedResults
 
-def fileOnMelPath( file ):
+def fileOnMelPath(file):
     """
     Return True if this file is on the mel path.
     """
     file = util.path(file)
-    info = pm.mel.whatIs( file.basename() ).split(': ', 1)
+    info = pm.mel.whatIs(file.basename()).split(': ', 1)
     if len(info) < 2:
         # If there wasn't a ':' character, the result was probably 'Unknown, or something similar -
         # anyway, not what we're looking for
@@ -305,7 +287,7 @@ def fileOnMelPath( file ):
     path = util.path(info[1])
     return path.samepath(file)
 
-def _updateCurrentModules( newResults ):
+def _updateCurrentModules(newResults):
     currentModules = melparse.batchData.currentModules
     for moduleName, melfile in newResults:
         if not isinstance(melfile, pm.Path):
@@ -331,9 +313,9 @@ def _makePackages():
         if melparse.batchData.outputDir:
             packages[package] = melparse.batchData.outputDir
         else:
-            assert package == tuple(melfile.splitall()[-(len(package)+1):-1]), \
+            assert package == tuple(melfile.splitall()[-(len(package) + 1):-1]), \
                 "package %s did not match melfile %s directory structure" % ('.'.join(package), melfile)
-            packages[package] = util.path.joinpath( *(melfile.splitall()[:-(len(package)+1)]) )
+            packages[package] = util.path.joinpath(*(melfile.splitall()[:-(len(package) + 1)]))
 
     for packageTuple, baseDir in packages.iteritems():
         if not baseDir.isdir():
@@ -347,18 +329,18 @@ def _makePackages():
             if not initFile.isfile():
                 initFile.touch()
 
-def _getInputFiles( input, recurse=False, exclude=(), melPathOnly=False, basePackage='' ):
+def _getInputFiles(input, recurse=False, exclude=(), melPathOnly=False, basePackage=''):
     """
     Returns tuples of the form (packageName, melfile)
     """
     results = []
-    if not util.isIterable( input ):
+    if not util.isIterable(input):
         input = [input]
     for f in input:
         results.extend(resolvePath(f, recurse=recurse, exclude=exclude, melPathOnly=melPathOnly, basePackage=basePackage))
     return results
 
-def melInfo( input ):
+def melInfo(input):
     """
     Get information about procedures in a mel file.
 
@@ -366,32 +348,34 @@ def melInfo( input ):
         >>> mel2py.melInfo('attributeExists')
         (['attributeExists'], {'attributeExists': {'returnType': 'int', 'args': [('string', '$attr'), ('string', '$node')]}}, {})
 
-    :Parameters:
-        input
-            can be a mel file or a sourced mel procedure
+    Parameters
+    ----------
+    input
+        can be a mel file or a sourced mel procedure
 
-    :return:
-        A 3-element tuple:
-            1. the list of procedures in the order the are defined
-            2. a dictionary of global procedures, with the following entries:
-                - returnType: mel type to be returned
-                - args: a list of (type, variable_name) pairs
-            3. a dictionary of local procedures, formatted the same as with globals
-
-
+    Returns
+    -------
+    allProcs : list of str
+        The list of procedures in the order the are defined
+    globalProcs : dict
+        A dictionary of global procedures, with the following entries:
+            - returnType: mel type to be returned
+            - args: a list of (type, variable_name) pairs
+    localProcs : dict
+        A dictionary of local procedures, formatted the same as with globals
     """
 
     # TODO: change this to use _getInputFiles, with an option to prevent recursing directories
     res = resolvePath(input)
     if len(res) != 1:
         raise ValueError, "input must be a mel script or a known procedure from a sourced mel script."
-    f = res[0]
+    f = res[0][1]
 
     cbParser = melparse.MelScanner()
     cbParser.build()
-    return cbParser.parse( f.bytes() )
+    return cbParser.parse(f.bytes())
 
-def mel2pyStr( data, currentModule=None, pymelNamespace='', forceCompatibility=False, verbosity=0, basePackage=None ):
+def mel2pyStr(data, currentModule=None, pymelNamespace='', forceCompatibility=False, verbosity=0, basePackage=None):
     """
     convert a string representing mel code into a string representing python code
 
@@ -404,82 +388,83 @@ def mel2pyStr( data, currentModule=None, pymelNamespace='', forceCompatibility=F
     Note that when converting single lines, the lines must end in a semi-colon, otherwise it is technically
     invalid syntax.
 
-    :Parameters:
-        data : `str`
-            string representing coe to convert
+    Parameters
+    ----------
+    data : `str`
+        string representing coe to convert
 
-        currentModule : `str`
-            the name of the module that the hypothetical code is executing in. In most cases you will
-            leave it at its default, the __main__ namespace.
+    currentModule : `str`
+        the name of the module that the hypothetical code is executing in. In most cases you will
+        leave it at its default, the __main__ namespace.
 
-        pymelNamespace : `str`
-            the namespace into which pymel will be imported.  the default is '', which means ``from pymel.all import *``
+    pymelNamespace : `str`
+        the namespace into which pymel will be imported.  the default is '', which means ``from pymel.all import *``
 
-        forceCompatibility : `bool`
-            If True, the translator will attempt to use non-standard python types in order to produce
-            python code which more exactly reproduces the behavior of the original mel file, but which
-            will produce "uglier" code.  Use this option if you wish to produce the most reliable code
-            without any manual cleanup.
+    forceCompatibility : `bool`
+        If True, the translator will attempt to use non-standard python types in order to produce
+        python code which more exactly reproduces the behavior of the original mel file, but which
+        will produce "uglier" code.  Use this option if you wish to produce the most reliable code
+        without any manual cleanup.
 
-        verbosity : `int`
-            Set to non-zero for a *lot* of feedback
+    verbosity : `int`
+        Set to non-zero for a *lot* of feedback
     """
 
     mparser = melparse.MelParser()
     mparser.build(currentModule, pymelNamespace=pymelNamespace, forceCompatibility=forceCompatibility, verbosity=verbosity)
 
-    results = mparser.parse( data )
-    #print mparser.lexer.global_procs
+    results = mparser.parse(data)
+    # print mparser.lexer.global_procs
     return results
 
 
-
-def mel2py( input, outputDir=None,
-            pymelNamespace='', forceCompatibility=False,
-            verbosity=0 , test=False,
-            recurse=False, exclude=(), melPathOnly=False,
-            basePackage=None):
+def mel2py(input, outputDir=None,
+           pymelNamespace='', forceCompatibility=False,
+           verbosity=0, test=False,
+           recurse=False, exclude=(), melPathOnly=False,
+           basePackage=None):
     """
     Batch convert an entire directory
 
-    :Parameters:
-        input
-            May be a directory, a list of directories, the name of a mel file, a list of mel files, or the name of a sourced procedure.
-            If only the name of the mel file is passed, mel2py will attempt to determine the location
-            of the file using the 'whatIs' mel command, which relies on the script already being sourced by maya.
+    Parameters
+    ----------
+    input
+        May be a directory, a list of directories, the name of a mel file, a list of mel files, or the name of a sourced procedure.
+        If only the name of the mel file is passed, mel2py will attempt to determine the location
+        of the file using the 'whatIs' mel command, which relies on the script already being sourced by maya.
 
-        outputDir : `str`
-            Directory where resulting python files will be written to
+    outputDir : `str`
+        Directory where resulting python files will be written to
 
-        pymelNamespace : `str`
-            the namespace into which pymel will be imported.  the default is '', which means ``from pymel.all import *``
+    pymelNamespace : `str`
+        the namespace into which pymel will be imported.  the default is '', which means ``from pymel.all import *``
 
-        forceCompatibility : `bool`
-            If True, the translator will attempt to use non-standard python types in order to produce
-            python code which more exactly reproduces the behavior of the original mel file, but which
-            will produce "uglier" code.  Use this option if you wish to produce the most reliable code
-            without any manual cleanup.
+    forceCompatibility : `bool`
+        If True, the translator will attempt to use non-standard python types in order to produce
+        python code which more exactly reproduces the behavior of the original mel file, but which
+        will produce "uglier" code.  Use this option if you wish to produce the most reliable code
+        without any manual cleanup.
 
-        verbosity : `int`
-            Set to non-zero for a *lot* of feedback
+    verbosity : `int`
+        Set to non-zero for a *lot* of feedback
 
-        test : `bool`
-            After translation, attempt to import the modules to test for errors
+    test : `bool`
+        After translation, attempt to import the modules to test for errors
 
-        recurse : `bool`
-            If the input is a directory, whether or not to recursively search subdirectories as well.
-            Subdirectories will be converted into packages, and any mel files within those subdirectories
-            will be submodules of that package.
+    recurse : `bool`
+        If the input is a directory, whether or not to recursively search subdirectories as well.
+        Subdirectories will be converted into packages, and any mel files within those subdirectories
+        will be submodules of that package.
 
-        exclude : `str`
-            A comma-separated list of files/directories to exclude from processing, if input is a directory.
+    exclude : `str`
+        A comma-separated list of files/directories to exclude from processing, if input is a directory.
 
-        melPathOnly : `bool`
-            If true, will only translate mel files found on the mel script path.
+    melPathOnly : `bool`
+        If true, will only translate mel files found on the mel script path.
 
-        basePackage : `str`
-            Gives the package that all translated modules will be a part of; if None or an empty string, all
-            translated modules are assumed to have no base package.
+    basePackage : `str`
+        Gives the package that all translated modules will be a part of; if None or an empty string, all
+        translated modules are assumed to have no base package.
     """
     if basePackage is None:
         basePackage = ''
@@ -493,7 +478,7 @@ def mel2py( input, outputDir=None,
     if outputDir and not os.path.exists(outputDir):
         os.makedirs(outputDir)
 
-    currentFiles = _getInputFiles( input, recurse=recurse, exclude=exclude, melPathOnly=melPathOnly, basePackage=basePackage )
+    currentFiles = _getInputFiles(input, recurse=recurse, exclude=exclude, melPathOnly=melPathOnly, basePackage=basePackage)
     if not currentFiles:
         raise ValueError, "Could not find any scripts to operate on. Please pass a directory, a list of directories, the name of a mel file, a list of mel files, or the name of a sourced procedure"
     _updateCurrentModules(currentFiles)
@@ -513,7 +498,7 @@ def mel2py( input, outputDir=None,
             data = melfile.bytes()
             print "Converting mel script", melfile
             try:
-                converted = mel2pyStr( data, moduleName, pymelNamespace=pymelNamespace, verbosity=verbosity )
+                converted = mel2pyStr(data, moduleName, pymelNamespace=pymelNamespace, verbosity=verbosity)
             except melparse.MelParseError, e:
                 if e.file is None:
                     e.file = melfile
@@ -537,9 +522,9 @@ def mel2py( input, outputDir=None,
         pyfile = currOutDir.joinpath(splitModule[-1] + '.py')
         print "Writing converted python script: %s" % pyfile
         pyfile.write_bytes(converted)
-        succeeded.append( pyfile )
+        succeeded.append(pyfile)
 
-        #except (ValueError, IndexError, TypeError, LexError), msg:
+        # except (ValueError, IndexError, TypeError, LexError), msg:
         #    if ignoreErrors:
         #        print 'failed:', msg
         #    else:
@@ -549,7 +534,7 @@ def mel2py( input, outputDir=None,
         for pyfile in succeeded:
             print "Testing", pyfile
             try:
-                __import__( pyfile.namebase )
+                __import__(pyfile.namebase)
             except (SyntaxError, IndentationError), msg:
                 print 'A syntax error exists in this file that will need to be manually fixed: %s' % msg
             except RuntimeError, msg:
@@ -564,7 +549,7 @@ def mel2py( input, outputDir=None,
     succCnt = len(succeeded)
     print "%d total processed for conversion" % len(batchData.currentModules)
     print "%d files succeeded" % succCnt
-    print "%d files failed" % (len(batchData.currentModules)-succCnt)
+    print "%d files failed" % (len(batchData.currentModules) - succCnt)
     if test:
         print "%d files imported without error" % (importCnt)
 
@@ -576,25 +561,21 @@ def findMelOnlyCommands():
     Using maya's documentation, find commands which were not ported to python.
     """
 
-    docs = util.path( _factories.mayaDocsLocation() )
-    melCmds = set([ x.namebase for x in ( docs / 'Commands').files('*.html') ])
-    pyCmds = set([ x.namebase for x in ( docs / 'CommandsPython').files('*.html') ])
+    docs = util.path(_factories.mayaDocsLocation())
+    melCmds = set([x.namebase for x in (docs / 'Commands').files('*.html')])
+    pyCmds = set([x.namebase for x in (docs / 'CommandsPython').files('*.html')])
     result = []
     for cmd in sorted(melCmds.difference(pyCmds)):
         typ = pymel.mel.whatIs(cmd)
-        if typ.startswith( 'Script') or typ.startswith( 'Mel' ):
+        if typ.startswith('Script') or typ.startswith('Mel'):
             typ = 'Mel'
         try:
-            func = getattr( pymel, cmd)
+            func = getattr(pymel, cmd)
             info = func.__module__
         except AttributeError:
-            if hasattr( melparse.builtin_module, cmd):
+            if hasattr(melparse.builtin_module, cmd):
                 info = 'builtin'
             else:
-                info = melparse.proc_remap.has_key( cmd )
-        result.append( (cmd, typ, info ) )
+                info = melparse.proc_remap.has_key(cmd)
+        result.append((cmd, typ, info))
     return result
-
-if __name__ == '__main__':
-    import pymel.tools.mel2pyCommand
-    pymel.tools.mel2pyCommand.main()

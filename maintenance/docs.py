@@ -1,5 +1,9 @@
 import sys
-import os, glob, shutil
+import os
+import glob
+import shutil
+import datetime
+
 assert 'pymel' not in sys.modules or 'PYMEL_INCLUDE_EXAMPLES' in os.environ, "to generate docs PYMEL_INCLUDE_EXAMPLES env var must be set before pymel is imported"
 
 # remember, the processed command examples are not version specific. you must
@@ -23,68 +27,90 @@ else:
     from pymel.core.uitypes import *
     from pymel.core.nodetypes import *
 
-
-
 version = pymel.__version__.rsplit('.',1)[0]
 SOURCE = 'source'
-BUILD = os.path.join('build', version)
+BUILD_ROOT = 'build'
+BUILD = os.path.join(BUILD_ROOT, version)
+sourcedir = os.path.join(docsdir, SOURCE)
+gendir = os.path.join(sourcedir, 'generated')
+buildrootdir = os.path.join(docsdir, BUILD_ROOT)
+builddir = os.path.join(docsdir, BUILD)
 
 from pymel.internal.cmdcache import fixCodeExamples
 
-def generate():
-    from sphinx.ext.autosummary.generate import main
+def generate(clean=True):
+    "delete build and generated directories and generate a top-level documentation source file for each module."
+    print "generating %s - %s" % (docsdir, datetime.datetime.now())
+    from sphinx.ext.autosummary.generate import main as sphinx_autogen
 
-    clean_build()
-    clean_generated()
-    os.chdir( os.path.join(docsdir,SOURCE) )
+    if clean:
+        clean_build()
+        clean_generated()
+    os.chdir(sourcedir)
 
-    main( [''] + '--templates ../templates index.rst'.split() )
-    main( [''] + '--templates ../templates'.split() + glob.glob('generated/pymel.*.rst') )
+    sphinx_autogen( [''] + '--templates ../templates modules.rst'.split() )
+    sphinx_autogen( [''] + '--templates ../templates'.split() + glob.glob('generated/pymel.*.rst') )
+    print "...done generating %s - %s" % (docsdir, datetime.datetime.now())
 
 def clean_build():
-    builddir = os.path.join(docsdir, BUILD)
-    if os.path.exists(builddir):
-        print "removing", builddir
-        shutil.rmtree(builddir)
+    "delete existing build directory"
+    if os.path.exists(buildrootdir):
+        print "removing %s - %s" % (buildrootdir, datetime.datetime.now())
+        shutil.rmtree(buildrootdir)
 
 def clean_generated():
-    gendir = os.path.join(docsdir,SOURCE, 'generated')
+    "delete existing generated directory"
     if os.path.exists(gendir):
-        print "removing", gendir
+        print "removing %s - %s" % (gendir, datetime.datetime.now())
         shutil.rmtree(gendir)
 
 def find_dot():
     if os.name == 'posix':
-        dots = ['/usr/local/bin/dot', '/usr/bin/dot']
+        dot_bin = 'dot'
     else:
-        dots = ['C:\\graphviz\\bin\\dot.exe']
-    for d in dots:
+        dot_bin = 'dot.exe'
+
+    for p in os.environ['PATH'].split(os.pathsep):
+        d = os.path.join(p, dot_bin)
         if os.path.exists(d):
             return d
-    raise TypeError( 'cannot find graphiz dot executable in the following locations: %s' % ', '.join(dots) )
+    raise TypeError('cannot find graphiz dot executable in the path (%s)' % os.environ['PATH'])
 
-def build(clean=True,  **kwargs):
-    from sphinx import main
+def copy_changelog():
+    changelog = os.path.join(pymel_root, 'CHANGELOG.rst')
+    whatsnew = os.path.join(pymel_root, 'docs', 'source', 'whats_new.rst')
+    shutil.copy2(changelog, whatsnew)
+
+def build(clean=True, **kwargs):
+    from sphinx import main as sphinx_build
+    print "building %s - %s" % (docsdir, datetime.datetime.now())
+
+    if not os.path.isdir(gendir):
+        generate()
+
     os.chdir( docsdir )
     if clean:
-        clean_generated()
         clean_build()
-    
+
+    copy_changelog()
+
     #mkdir -p build/html build/doctrees
-    
+
     #import pymel.internal.cmdcache as cmdcache
     #cmdcache.fixCodeExamples()
     opts = ['']
     opts += '-b html -d build/doctrees'.split()
-    
+
     # set some defaults
-    if 'graphviz_dot' not in kwargs:
+    if not kwargs.get('graphviz_dot', None):
         kwargs['graphviz_dot'] = find_dot()
-    
+
     for key, value in kwargs.iteritems():
         opts.append('-D')
         opts.append( key.strip() + '=' + value.strip() )
     opts.append('-P')
     opts.append(SOURCE)
     opts.append(BUILD)
-    main(opts)
+    sphinx_build(opts)
+    print "...done building %s - %s" % (docsdir, datetime.datetime.now())
+

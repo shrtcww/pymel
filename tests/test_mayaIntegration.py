@@ -23,12 +23,12 @@ def replacePath(match):
     if file:
         dir = groups.get('dir', '')
         if dir:
-            dir = '<py_dir>/' 
+            dir = '<py_dir>/'
         path = '%s%s.py' % (dir, file)
     else:
         path = groups['special_file']
     return path
-    
+
 def fileLineReplacer1(match):
     return 'file %s line <lineno>' % replacePath(match)
 
@@ -51,6 +51,18 @@ errorCodes = [
 #     copyfile(src, dst)
 #   File "<py_dir>/shutil.py", line <lineno>, in copyfile
 #     fsrc = open(src, 'rb')
+# IOError: [Errno 2] No such file or directory: 'this_does_not_exist.txt'"""
+    if sys.version_info[:2] < (2,7) else
+"""[Errno 2] No such file or directory: 'this_does_not_exist.txt'
+# Traceback (most recent call last):
+#   File "<maya console>", line <lineno>, in <module>
+#   File "<string>", line <lineno>, in <module>
+#   File "<py_dir>/shutil.py", line <lineno>, in move
+#     copy2(src, real_dst)
+#   File "<py_dir>/shutil.py", line <lineno>, in copy2
+#     copyfile(src, dst)
+#   File "<py_dir>/shutil.py", line <lineno>, in copyfile
+#     with open(src, 'rb') as fsrc:
 # IOError: [Errno 2] No such file or directory: 'this_does_not_exist.txt'"""
 )),
 
@@ -99,7 +111,7 @@ class TestMayaIntegration(unittest.TestCase):
                         res = res.replace('test_guiExceptionFormatting', '<module>')
                         res = res.replace('<py_dir>/test_mayaIntegration.py', '<maya console>')
                         res = res.replace('#     eval(codeStr)\n', '')
-                        
+
                         expected = messages[level]
                         if res != expected:
                             print 'level: %d' % level
@@ -107,12 +119,12 @@ class TestMayaIntegration(unittest.TestCase):
                             print "raw res:"
                             print rawres
                             print '*' * 60
-    
+
                             print '*' * 60
                             print "res:"
                             print res
                             print '*' * 60
-    
+
                             print '*' * 60
                             print "expected:"
                             print expected
