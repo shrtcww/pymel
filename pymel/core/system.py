@@ -799,8 +799,7 @@ class Path(pathClass):
     """A basic Maya file class. it gets most of its power from the path class written by Jason Orendorff.
     see path.py for more documentation."""
 
-    def __repr__(self):
-        return "%s('%s')" % (self.__class__.__name__, self)
+
 
     getTypeName = _factories.makeQueryFlagMethod(cmds.file, 'type')
     setSubType = _factories.makeQueryFlagMethod(cmds.file, 'subType', 'setSubType')

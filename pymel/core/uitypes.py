@@ -836,7 +836,7 @@ def MenuItem(name=None, create=False, **kwargs):
         except RuntimeError:
             cls = SubMenuItem
         else:
-            if uiType == 'subMenuItem':
+            if uiType in ('menu','subMenuItem'):
                 cls = SubMenuItem
             else:
                 cls = CommandMenuItem

@@ -1,19 +1,19 @@
 """
-General utility functions that are not specific to Maya Commands or the 
+General utility functions that are not specific to Maya Commands or the
 OpenMaya API.
 
 Note:
 By default, handlers are installed for the root logger.  This can be overriden
 with env var MAYA_DEFAULT_LOGGER_NAME.
-Env vars MAYA_GUI_LOGGER_FORMAT and MAYA_SHELL_LOGGER_FORMAT can be used to 
-override the default formatting of logging messages sent to the GUI and 
+Env vars MAYA_GUI_LOGGER_FORMAT and MAYA_SHELL_LOGGER_FORMAT can be used to
+override the default formatting of logging messages sent to the GUI and
 shell respectively.
 
 """
 
 # Note that several of the functions in this module are implemented in C++
 # code, such as executeDeferred and executeInMainThreadWithResult
- 
+
 def runOverriddenModule(modName, callingFileFunc, globals):
     '''Run a module that has been 'overriden' on the python path by another module.
 
@@ -65,6 +65,10 @@ def runOverriddenModule(modName, callingFileFunc, globals):
     import sys
     import imp
 
+    def _samefile(file1, file2):
+        """ os.path.samefile is not avaliable on windows... """
+        return os.stat(file1) == os.stat(file2)
+
     callingFile = inspect.getsourcefile(callingFileFunc)
 
     # first, determine the path to search for the module...
@@ -92,7 +96,7 @@ def runOverriddenModule(modName, callingFileFunc, globals):
         if isinstance(findResults[0], file):
             findResults[0].close()
         # ...then check if the found file matched the callingFile
-        if os.path.samefile(findResults[1], callingFile):
+        if _samefile(findResults[1], callingFile):
             break
     else:
         # we couldn't find the file - raise an ImportError
@@ -142,16 +146,16 @@ def formatGuiException(exceptionType, exceptionObject, traceBack, detail=2):
         exceptionObject : Detailed exception information
         traceBack       : Exception traceback stack information
         detail          : 0 = no trace info, 1 = line/file only, 2 = full trace
-                          
-    To perform an action when an exception occurs without modifying Maya's 
+
+    To perform an action when an exception occurs without modifying Maya's
     default printing of exceptions, do the following::
-    
+
         import maya.utils
         def myExceptCB(etype, value, tb, detail=2):
             # do something here...
             return maya.utils._formatGuiException(etype, value, tb, detail)
         maya.utils.formatGuiException = myExceptCB
-        
+
     """
     # originally, this code used
     #    exceptionMsg = unicode(exceptionObject.args[0])

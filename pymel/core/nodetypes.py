@@ -236,6 +236,16 @@ class DependNode(general.PyNode):
         "get the ``maya.OpenMaya.MObjectHandle`` for this node if it is valid"
         return self.__apiobjects__['MObjectHandle']
 
+    def uuid(self):
+        return self.__apimfn__().uuid()
+
+    def setUUID(self, uuid):
+        if not isinstance(uuid, _api.MUuid):
+            uuid = _api.MUuid(uuid)
+        
+        if self.uuid() != uuid:
+            self.__apimfn__().setUuid(uuid)
+
     def __str__(self):
         return "%s" % self.name()
 
@@ -2781,7 +2791,7 @@ class Mesh(SurfaceShape):
     numEdges = _factories.makeCreateFlagMethod(cmds.polyEvaluate, 'edge', 'numEdges')
     numFaces = _factories.makeCreateFlagMethod(cmds.polyEvaluate, 'face', 'numFaces')
 
-    numTriangles = _factories.makeCreateFlagMethod(cmds.polyEvaluate, 'triangles', 'numTriangles')
+    numTriangles = _factories.makeCreateFlagMethod(cmds.polyEvaluate, 'triangle', 'numTriangles')
     numSelectedTriangles = _factories.makeCreateFlagMethod(cmds.polyEvaluate, 'triangleComponent', 'numSelectedTriangles')
     numSelectedFaces = _factories.makeCreateFlagMethod(cmds.polyEvaluate, 'faceComponent', 'numSelectedFaces')
     numSelectedEdges = _factories.makeCreateFlagMethod(cmds.polyEvaluate, 'edgeComponent', 'numSelectedEdges')
@@ -3543,6 +3553,53 @@ class GeometryFilter(DependNode):
     pass
 class SkinCluster(GeometryFilter):
     __metaclass__ = _factories.MetaMayaNodeWrapper
+
+
+    def getBlendWeights(self, geometry):
+        if not isinstance(geometry, general.PyNode):
+            geometry = general.PyNode(geometry)
+        
+        if isinstance(geometry, Transform):
+            try:
+                geometry = geometry.getShape()
+            except:
+                raise TypeError, "%s is a transform with no shape" % geometry
+        
+        if isinstance(geometry, GeometryShape):
+            components = _api.toComponentMObject(geometry.__apimdagpath__())
+        elif isinstance(geometry, general.Component):
+            components = geometry.__apiobject__()
+        else:
+            raise TypeError
+        
+        weights = _api.MDoubleArray()
+        self.__apimfn__().getBlendWeights(geometry.__apimdagpath__(), components, weights)
+        return iter(weights)
+
+    def setBlendWeights(self, geometry, weights):
+        if not isinstance(geometry, general.PyNode):
+            geometry = general.PyNode(geometry)
+        
+        if isinstance(geometry, Transform):
+            try:
+                geometry = geometry.getShape()
+            except:
+                raise TypeError, "%s is a transform with no shape" % geometry
+    
+        if isinstance(geometry, GeometryShape):
+            components = _api.toComponentMObject(geometry.__apimdagpath__())
+        elif isinstance(geometry, general.Component):
+            components = geometry.__apiobject__()
+        else:
+            raise TypeError
+        
+        if not isinstance(weights, _api.MDoubleArray):
+            api_weights = _api.MDoubleArray()
+            for weight in weights:
+                api_weights.append(weight)
+            weights = api_weights
+        
+            return self.__apimfn__().setBlendWeights(geometry.__apimdagpath__(), components, weights)
 
     def getWeights(self, geometry, influenceIndex=None):
         if not isinstance(geometry, general.PyNode):
