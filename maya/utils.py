@@ -1,19 +1,19 @@
 """
-General utility functions that are not specific to Maya Commands or the
+General utility functions that are not specific to Maya Commands or the 
 OpenMaya API.
 
 Note:
 By default, handlers are installed for the root logger.  This can be overriden
 with env var MAYA_DEFAULT_LOGGER_NAME.
-Env vars MAYA_GUI_LOGGER_FORMAT and MAYA_SHELL_LOGGER_FORMAT can be used to
-override the default formatting of logging messages sent to the GUI and
+Env vars MAYA_GUI_LOGGER_FORMAT and MAYA_SHELL_LOGGER_FORMAT can be used to 
+override the default formatting of logging messages sent to the GUI and 
 shell respectively.
 
 """
 
 # Note that several of the functions in this module are implemented in C++
 # code, such as executeDeferred and executeInMainThreadWithResult
-
+ 
 def runOverriddenModule(modName, callingFileFunc, globals):
     '''Run a module that has been 'overriden' on the python path by another module.
 
@@ -65,11 +65,35 @@ def runOverriddenModule(modName, callingFileFunc, globals):
     import sys
     import imp
 
-    def _samefile(file1, file2):
-        """ os.path.samefile is not avaliable on windows... """
-        return os.stat(file1) == os.stat(file2)
+    try:
+        from os.path import samefile
+    except ImportError:
+        # os.samefile does not exist on Windows (as of Python version < 3k)
+        # WARNING: Resorting to a less than ideal method to checking for same file
+        # TODO: Add deeper implementation of the samefile hack for windows
+        # in future, if possible.
+        def samefile(p1, p2):
+            return os.stat(p1) == os.stat(p2)
 
     callingFile = inspect.getsourcefile(callingFileFunc)
+
+    # because the same path might be in the sys.path twice, resulting
+    # in THIS EXACT FILE showing up in the search path multiple times, we
+    # need to continue until we know the next found path is not this one - or
+    # any other path already found by runOverriddenModule.
+
+    # ie, suppose we have TWO modules which both use runOverriddenModule, A
+    # and B, and one "base" module they override, C.  Then suppose our sys.path
+    # would cause them to be discovered in this order: [A, B, B, A, C].
+    # We need to make sure that we get to C even in this scenario! To do this,
+    # we store already-executed paths in the globals...
+
+    executedFiles = globals.get('_runOverriddenModule_already_executed')
+    if executedFiles is None:
+        executedFiles = set()
+        globals['_runOverriddenModule_already_executed'] = executedFiles
+    executedFiles.add(callingFile)
+
 
     # first, determine the path to search for the module...
     packageSplit = modName.rsplit('.', 1)
@@ -88,6 +112,7 @@ def runOverriddenModule(modName, callingFileFunc, globals):
     # the module to be found, so we go one-at-a-time...
 
     for i, dir in enumerate(path):
+        dir = path[i]
         try:
             findResults = imp.find_module(baseModName, [dir])
         except ImportError:
@@ -96,21 +121,16 @@ def runOverriddenModule(modName, callingFileFunc, globals):
         if isinstance(findResults[0], file):
             findResults[0].close()
         # ...then check if the found file matched the callingFile
-        if _samefile(findResults[1], callingFile):
+        if any(samefile(findResults[1], oldFile)
+               for oldFile in executedFiles):
+            continue
+        else:
             break
     else:
         # we couldn't find the file - raise an ImportError
-        raise ImportError("Couldn't find the file %r when using path %r"
+        raise ImportError("Couldn't find a version of the file %r that hadn't "
+                          "already been executed when using path %r"
                           % (callingFile, path))
-
-    # ok, we found the previous file on the path, now strip out everything from
-    # that path and before...
-    newPath = path[i + 1:]
-
-    # find the new location of the module, using our shortened path...
-    findResults = imp.find_module(baseModName, newPath)
-    if isinstance(findResults[0], file):
-        findResults[0].close()
 
     execfile(findResults[1], globals)
     return findResults[1]
@@ -146,16 +166,16 @@ def formatGuiException(exceptionType, exceptionObject, traceBack, detail=2):
         exceptionObject : Detailed exception information
         traceBack       : Exception traceback stack information
         detail          : 0 = no trace info, 1 = line/file only, 2 = full trace
-
-    To perform an action when an exception occurs without modifying Maya's
+                          
+    To perform an action when an exception occurs without modifying Maya's 
     default printing of exceptions, do the following::
-
+    
         import maya.utils
         def myExceptCB(etype, value, tb, detail=2):
             # do something here...
             return maya.utils._formatGuiException(etype, value, tb, detail)
         maya.utils.formatGuiException = myExceptCB
-
+        
     """
     # originally, this code used
     #    exceptionMsg = unicode(exceptionObject.args[0])
